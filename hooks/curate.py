@@ -547,6 +547,21 @@ def run_capture(
 
 # ── CLI entry point ────────────────────────────────────────────────────────────
 
+def _extract_text(content) -> str:
+    """Flatten content that may be a string or a list of content blocks."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = [
+            block.get("text", "") if isinstance(block, dict) and block.get("type") == "text"
+            else block if isinstance(block, str)
+            else ""
+            for block in content
+        ]
+        return "\n".join(p for p in parts if p)
+    return ""
+
+
 def _load_transcript(transcript_path: str) -> list[dict]:
     messages = []
     with open(transcript_path, encoding="utf-8") as fh:
@@ -557,9 +572,11 @@ def _load_transcript(transcript_path: str) -> list[dict]:
             try:
                 obj = json.loads(line)
                 if obj.get("type") == "user" or obj.get("role") == "user":
-                    messages.append({"role": "user", "content": obj.get("message", {}).get("content", obj.get("content", ""))})
+                    raw = obj.get("message", {}).get("content", obj.get("content", ""))
+                    messages.append({"role": "user", "content": _extract_text(raw)})
                 elif obj.get("type") == "assistant" or obj.get("role") == "assistant":
-                    messages.append({"role": "assistant", "content": obj.get("message", {}).get("content", obj.get("content", ""))})
+                    raw = obj.get("message", {}).get("content", obj.get("content", ""))
+                    messages.append({"role": "assistant", "content": _extract_text(raw)})
             except json.JSONDecodeError:
                 continue
     return messages
@@ -592,14 +609,7 @@ def main():
 
 def _log_error(msg: str) -> None:
     ts = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    line = f"{ts} {msg}\n"
-    print(line, file=sys.stderr, end="")
-    try:
-        HOOKS_LOG.parent.mkdir(parents=True, exist_ok=True)
-        with open(HOOKS_LOG, "a") as fh:
-            fh.write(line)
-    except OSError:
-        pass
+    print(f"{ts} {msg}", file=sys.stderr)
 
 
 if __name__ == "__main__":
