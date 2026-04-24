@@ -23,7 +23,6 @@ else
     START_DATE_FILE="$REPO/eval/state/start-date.txt"
 fi
 
-HOOK_NAME="claude-vault-capture"
 HOOK_CMD="\$HOME/DevDS/claude-vault-capture/hooks/session-end-capture.sh"
 
 # ── 1. Create required directories ───────────────────────────────────────────
@@ -57,12 +56,11 @@ fi
 # Backup
 cp "$SETTINGS" "${SETTINGS}.bak"
 
-python3 - "$SETTINGS" "$HOOK_NAME" "$HOOK_CMD" <<'PYEOF'
+python3 - "$SETTINGS" "$HOOK_CMD" <<'PYEOF'
 import json, sys
 
 settings_path = sys.argv[1]
-hook_name = sys.argv[2]
-hook_cmd = sys.argv[3]
+hook_cmd = sys.argv[2]
 
 with open(settings_path) as f:
     data = json.load(f)
@@ -70,10 +68,17 @@ with open(settings_path) as f:
 data.setdefault("hooks", {}).setdefault("SessionEnd", [])
 hooks = data["hooks"]["SessionEnd"]
 
-# Remove existing entry with same name (idempotency)
-hooks[:] = [h for h in hooks if h.get("name") != hook_name]
-# Append fresh entry
-hooks.append({"name": hook_name, "command": hook_cmd})
+# New format: {"matcher": "", "hooks": [{"type": "command", "command": "..."}]}
+# Idempotency: remove any existing entry whose inner command matches ours.
+def _is_our_entry(h):
+    inner = h.get("hooks", [])
+    return any(c.get("command") == hook_cmd for c in inner if isinstance(c, dict))
+
+hooks[:] = [h for h in hooks if not _is_our_entry(h)]
+hooks.append({
+    "matcher": "",
+    "hooks": [{"type": "command", "command": hook_cmd}]
+})
 
 with open(settings_path, "w") as f:
     json.dump(data, f, indent=2)
@@ -176,6 +181,6 @@ fi
 
 echo ""
 echo "Install complete."
-echo "  Hook: $HOOK_NAME → $HOOK_CMD"
+echo "  Hook: claude-vault-capture → $HOOK_CMD"
 echo "  Vault: $VAULT"
 echo "  Eval state: $REPO/eval/state/"

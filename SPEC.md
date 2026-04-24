@@ -234,12 +234,17 @@ First install inserts the markers at the right anchor (after the existing confir
 
 ```json
 {
-  "name": "claude-vault-capture",
-  "command": "$HOME/DevDS/claude-vault-capture/hooks/session-end-capture.sh"
+  "matcher": "",
+  "hooks": [
+    {
+      "type": "command",
+      "command": "$HOME/DevDS/claude-vault-capture/hooks/session-end-capture.sh"
+    }
+  ]
 }
 ```
 
-The `name` field is the idempotency key: `install.sh` matches on `name == "claude-vault-capture"` and replaces the whole entry if found, appends it if not. Matching on `name` rather than `command` means the user (or a later install) can move the repo and re-install without the installer adding a duplicate entry — the path changes, the name doesn't. `run-install-smoke.sh` (§6) covers this by running `install.sh` twice with a modified `command` between runs and asserting exactly one entry remains.
+The **command path** is the idempotency key: `install.sh` matches on the inner `command` value and replaces the whole entry if found, appends it if not. This means a user can re-run install after moving the repo — the old entry (different path) is removed and the new one is appended. `run-install-smoke.sh` (§6) covers this by running `install.sh` twice with a modified path between runs and asserting exactly one entry remains.
 
 **Anchor detection.** `daily-devlog.step-9.5.md` is inserted immediately after the line matching `<!-- anchor: after-confirmation-step -->` in the target SKILL.md. If this anchor comment is absent, `install.sh` exits 1 with an explicit error rather than guessing position. Same pattern for `weekly-recap.step-5.5.md` (anchor: `<!-- anchor: before-recap-writing -->`). **Adding both anchor comments to the target skill files is a pre-implementation task tracked in §9 Week-0 — `install.sh` will fail without them.**
 
@@ -440,7 +445,7 @@ Detect via `git -C "$VAULT" rev-parse --is-inside-work-tree 2>/dev/null`. Do not
 ## 9. Eval checklist
 
 - [ ] **Week 0 — pre-implementation prerequisites.** Add `<!-- anchor: after-confirmation-step -->` to `~/.claude/skills/daily-devlog/SKILL.md` and `<!-- anchor: before-recap-writing -->` to `~/.claude/skills/weekly-recap/SKILL.md` at the correct positions. `install.sh` exits 1 without these.
-- [ ] **Week 0 — install & first session.** Run `install.sh`; confirm `eval/state/` directory created, `start-date.txt` written, hook registered in `settings.json` as `{"name":"claude-vault-capture", …}`, marker blocks inserted in both SKILL.md files, `eval/.gitignore` contains `state/`. First session produces one file in each of `Inbox/auto/` (or null) and `Inbox/raw/`. Verify frontmatter, cost logging, and idempotency (re-run on same session = no duplicates). Verify `~/.claude/hooks.log` contains a `SESSION_END_RECEIVED` line for the session. Verify the first `log.md` entry has `schema_version: 1` and an ISO-8601 `timestamp`. **Run `pytest tests/` — all must pass, including: multi-line `.env` redaction in `test_scrub.py`, cross-line private-key block redaction, Bearer-token redaction, title sanitization, all `skip_reason` variants in `test_log_schema.py`, and Path A/B exception isolation in `test_failure_isolation.py`.** Manually run the hook once with a transcript containing a fake API key; confirm neither Inbox file contains the token.
+- [ ] **Week 0 — install & first session.** Run `install.sh`; confirm `eval/state/` directory created, `start-date.txt` written, hook registered in `settings.json` as `{"matcher":"", "hooks":[{"type":"command","command":"…"}]}`, marker blocks inserted in both SKILL.md files, `eval/.gitignore` contains `state/`. First session produces one file in each of `Inbox/auto/` (or null) and `Inbox/raw/`. Verify frontmatter, cost logging, and idempotency (re-run on same session = no duplicates). Verify `~/.claude/hooks.log` contains a `SESSION_END_RECEIVED` line for the session. Verify the first `log.md` entry has `schema_version: 1` and an ISO-8601 `timestamp`. **Run `pytest tests/` — all must pass, including: multi-line `.env` redaction in `test_scrub.py`, cross-line private-key block redaction, Bearer-token redaction, title sanitization, all `skip_reason` variants in `test_log_schema.py`, and Path A/B exception isolation in `test_failure_isolation.py`.** Manually run the hook once with a transcript containing a fake API key; confirm neither Inbox file contains the token.
 - [ ] **Week 1 — mid-week review.** Review both Inboxes. Is Path A producing anything non-obvious vs Path B? Tune either prompt if obviously off. Review redaction counts in `eval/state/log.md` — if 0 across all sessions, either you're not pasting secrets (fine) or the rules are too narrow (fix). Check `eval/state/scrub-failures.md` — any entries mean a rule stopped running and secrets may have flowed through unredacted during that window.
 - [ ] **Week 2 — first full `/weekly-recap` sweep.** Record kept/discard/miss counts and no-capture sessions. Verify the 25% alarm would fire if the ratio exceeds threshold (manually simulate by seeding `log.md` with enough error entries if needed).
 - [ ] **Week 4 — retrospective.** Tally metrics from `eval/state/metrics.md`. Compare kept-rate and miss rate. Write decision note. Revisit the four open questions in §8 (cost ceiling, scrubber completeness, `log.md` extension, session-index rotation, backlink accumulation).
