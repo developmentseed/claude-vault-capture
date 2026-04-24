@@ -72,6 +72,13 @@ def sanitize_title(title: str) -> str:
 # ── slug generation ────────────────────────────────────────────────────────────
 
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
+_CODE_FENCE_RE = re.compile(r"^```(?:json)?\s*\n(.*)\n```\s*$", re.DOTALL)
+
+
+def _strip_fences(text: str) -> str:
+    """Strip optional markdown code fences the model sometimes wraps around JSON."""
+    m = _CODE_FENCE_RE.match(text)
+    return m.group(1) if m else text
 
 
 def make_slug(title: str) -> str:
@@ -303,7 +310,7 @@ def _call_path_a(scrubbed_text: str, prompts_dir: pathlib.Path) -> dict | None:
         messages=[{"role": "user", "content": scrubbed_text}],
         timeout=TIMEOUT_SECONDS,
     )
-    raw = msg.content[0].text.strip()
+    raw = _strip_fences(msg.content[0].text.strip())
     if raw.lower() == "null":
         return None
     data = json.loads(raw)
@@ -329,7 +336,7 @@ def _call_path_b(scrubbed_text: str, prompts_dir: pathlib.Path) -> dict:
         messages=[{"role": "user", "content": scrubbed_text}],
         timeout=TIMEOUT_SECONDS,
     )
-    raw = msg.content[0].text.strip()
+    raw = _strip_fences(msg.content[0].text.strip())
     data = json.loads(raw)
     data["tokens_in"] = msg.usage.input_tokens
     data["tokens_out"] = msg.usage.output_tokens
