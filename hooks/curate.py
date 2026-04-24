@@ -25,6 +25,8 @@ from typing import Any
 
 CAPTURE_MAX_EST_TOKENS: int = int(os.environ.get("CAPTURE_MAX_EST_TOKENS", "50000"))
 
+EXCLUDED_COMMANDS: list[str] = ["/daily-devlog", "/weekly-recap"]
+
 VAULT_DIR = pathlib.Path.home() / "Obsidian" / "loics_vault"
 LOG_PATH = pathlib.Path.home() / "DevDS" / "claude-vault-capture" / "eval" / "state" / "log.md"
 INDEX_PATH = pathlib.Path.home() / "DevDS" / "claude-vault-capture" / "eval" / "state" / "session-index.tsv"
@@ -167,6 +169,25 @@ def is_below_threshold(messages: list[dict]) -> bool:
     user_turns = [m for m in messages if m.get("role") == "user"]
     user_chars = sum(len(m.get("content", "")) for m in user_turns)
     return len(user_turns) < 3 or user_chars < 1500
+
+
+def uses_excluded_command(
+    messages: list[dict],
+    excluded_commands: list[str] = EXCLUDED_COMMANDS,
+) -> bool:
+    """Return True if any user turn invokes an excluded slash command.
+
+    Matches only when the command appears at the start of a line (possibly
+    preceded by whitespace), so mentions of the command in prose are ignored.
+    """
+    patterns = [re.compile(r"(?m)^\s*" + re.escape(cmd) + r"(?:\s|$)") for cmd in excluded_commands]
+    for msg in messages:
+        if msg.get("role") != "user":
+            continue
+        text = msg.get("content", "")
+        if any(p.search(text) for p in patterns):
+            return True
+    return False
 
 
 # ── token guard ────────────────────────────────────────────────────────────────
@@ -388,7 +409,21 @@ def run_capture(
     )
     scrubbed_text, redactions = scrub_mod.scrub(raw_text)
 
-    # ── 2. threshold check ────────────────────────────────────────────────────
+    # ── 2. excluded command check ─────────────────────────────────────────────
+    if uses_excluded_command(transcript):
+        entry = build_log_entry(
+            session_id=session_id,
+            path_a=None, skip_reason_a="excluded_command",
+            path_b=None, skip_reason_b="excluded_command",
+            tokens_in_a=None, tokens_out_a=None,
+            tokens_in_b=None, tokens_out_b=None,
+            cost_usd_a=None, cost_usd_b=None,
+            redactions=redactions,
+        )
+        append_log(entry, log_path=log_path)
+        return
+
+    # ── 3. threshold check ────────────────────────────────────────────────────
     if is_below_threshold(transcript):
         entry = build_log_entry(
             session_id=session_id,
@@ -402,7 +437,7 @@ def run_capture(
         append_log(entry, log_path=log_path)
         return
 
-    # ── 3. token-count guard ──────────────────────────────────────────────────
+    # ── 4. token-count guard ──────────────────────────────────────────────────
     if is_above_token_limit(scrubbed_text):
         entry = build_log_entry(
             session_id=session_id,
@@ -416,14 +451,14 @@ def run_capture(
         append_log(entry, log_path=log_path)
         return
 
-    # ── 4. dedup check ────────────────────────────────────────────────────────
+    # ── 5. dedup check ────────────────────────────────────────────────────────
     if is_duplicate_session(session_id, index_path=index_path):
         return
 
-    # ── 5. project derivation ─────────────────────────────────────────────────
+    # ── 6. project derivation ─────────────────────────────────────────────────
     project = derive_project(cwd)
 
-    # ── 6. parallel API calls (or mock) ──────────────────────────────────────
+    # ── 7. parallel API calls (or mock) ──────────────────────────────────────
     result_a: dict | None = None
     result_b: dict | None = None
     skip_reason_a: str | None = None
@@ -471,7 +506,7 @@ def run_capture(
     except Exception as exc:
         skip_reason_b = f"error:{type(exc).__name__}"
 
-    # ── 7. scrub model outputs ────────────────────────────────────────────────
+    # ── 8. scrub model outputs ────────────────────────────────────────────────
     if result_a:
         body_a, _ = scrub_mod.scrub(result_a.get("body", ""))
         result_a["body"] = body_a
@@ -479,7 +514,7 @@ def run_capture(
         body_b, _ = scrub_mod.scrub(result_b.get("body", ""))
         result_b["body"] = body_b
 
-    # ── 8 & 9. sanitize title + write Path A ─────────────────────────────────
+    # ── 9 & 10. sanitize title + write Path A ────────────────────────────────
     path_a_rel: str | None = None
     if result_a and skip_reason_a is None:
         title_a = sanitize_title(result_a.get("title", "untitled"))
@@ -504,7 +539,7 @@ def run_capture(
         )
         path_a_rel = rel_a
 
-    # ── 10. write Path B ──────────────────────────────────────────────────────
+    # ── 11. write Path B ─────────────────────────────────────────────────────
     path_b_rel: str | None = None
     if result_b and skip_reason_b is None:
         title_b = sanitize_title(result_b.get("title", "untitled"))
@@ -529,10 +564,10 @@ def run_capture(
         )
         path_b_rel = rel_b
 
-    # ── 11. append session index ──────────────────────────────────────────────
+    # ── 12. append session index ─────────────────────────────────────────────
     _append_index(session_id, path_a_rel, path_b_rel, date_str, index_path=index_path)
 
-    # ── 12. append log ────────────────────────────────────────────────────────
+    # ── 13. append log ───────────────────────────────────────────────────────
     entry = build_log_entry(
         session_id=session_id,
         path_a=path_a_rel, skip_reason_a=skip_reason_a,
