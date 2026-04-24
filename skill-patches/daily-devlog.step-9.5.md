@@ -1,4 +1,3 @@
-<!-- BEGIN claude-vault-capture: step 9.5 -->
 ## Step 9.5 — Inbox sweep (vault capture eval)
 
 Before scanning for artifacts, check for scrub failures:
@@ -22,4 +21,3 @@ Offer: **"Promote any of these inline into today's note?"** — default no.
 3. In the artifact file (at its `Inbox/` path), locate or create a `## Referenced in` section. Append: `- [[<devlog-stem>|<date> devlog]]`.
 4. If either write fails, log the failure and continue — partial links are acceptable; blocked promotions are not.
 5. The artifact file is **NOT moved** — it stays in `Inbox/` and remains eligible for the next weekly sweep.
-<!-- END claude-vault-capture: step 9.5 -->

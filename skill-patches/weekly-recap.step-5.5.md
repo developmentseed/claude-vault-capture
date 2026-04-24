@@ -1,4 +1,3 @@
-<!-- BEGIN claude-vault-capture: step 5.5 -->
 ## Step 5.5 — Inbox sweep (vault capture eval)
 
 Before writing the recap, triage any captured artifacts from the eval window.
@@ -27,5 +26,3 @@ Before writing the recap, triage any captured artifacts from the eval window.
 7. Append weekly counts to `eval/state/metrics.md`: week, path, captured, promoted, deleted, skipped, misses, no-capture-sessions.
    - **No-capture session** (per SPEC §2.2): a `log.md` entry where both `path_a` and `path_b` are `null` AND `skip_reason_a != "threshold"`. Threshold skips are expected behaviour and are excluded.
    - **25% crash alarm:** compute `ratio = no_capture_sessions / (total_log_entries − threshold_skipped_entries)`. If `ratio > 0.25`, note this prominently — it likely indicates a crashing `curate.py` or misconfigured `$ANTHROPIC_API_KEY`. Threshold skips are excluded from both numerator and denominator so dilution from short debugging sessions doesn't mask real failures.
-
-<!-- END claude-vault-capture: step 5.5 -->
