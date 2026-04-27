@@ -29,8 +29,8 @@ Before running the installer, add anchor comments to the skill files:
 # In ~/.claude/skills/daily-devlog/SKILL.md — after the confirmation step:
 # <!-- anchor: after-confirmation-step -->
 
-# In ~/.claude/skills/weekly-recap/SKILL.md — before the recap writing step:
-# <!-- anchor: before-recap-writing -->
+# In ~/.claude/skills/weekly-recap/SKILL.md — after the recap writing step (step 7):
+# <!-- anchor: after-recap-writing -->
 ```
 
 Then install:

@@ -139,11 +139,12 @@ Add a new **step 9.5** after the existing confirmation step:
 
 #### `/weekly-recap` — weekly sweep
 
-Add a new **step 5.5** before writing the recap:
+Add a new **step 8** after writing the recap (steps 1–7 complete first):
 - List every `Inbox/auto/*.md` and `Inbox/raw/*.md` with `created` in the recap's date range.
 - For each file, show: source (curated/raw), tags, one-line description.
 - If the item list exceeds 10 files, offer a preamble before the item loop: `N items to review. [p]roceed item by item / [s]kip all (leave in Inbox) / [d]elete all raw`. The bulk options apply immediately and exit the loop.
-- Prompt the user, item by item: `[p]romote / [d]elete / [s]kip (stay in inbox)`.
+- **Present items one at a time** — show one item, wait for the user's decision, then advance. Do not list all items upfront.
+- Prompt per item: `[p]romote / [d]elete / [s]kip (stay in inbox)`.
   - **Promote** → ask target folder (`work/<project>/`, `notes_patterns/`, `notes_runbooks/`, etc), move the file, record outcome. **Then:**
     - Determine the current recap note stem using the deterministic convention: `notes_weekly/YYYY-Www` (ISO week, zero-padded — see §8 resolved).
     - In the recap note, locate or create a `## Captured Knowledge` section. Append one bullet: `- [[<artifact-stem>|<title>]] (<source>, moved to <target-folder>)`.
@@ -156,7 +157,7 @@ Add a new **step 5.5** before writing the recap:
 - Append weekly counts to `eval/state/metrics.md`: week, path, captured, promoted, deleted, skipped, misses, no-capture-sessions.
 - **25% crash alarm:** compute `ratio = no_capture_sessions / (total_log_entries − threshold_skipped_entries − excluded_command_entries)`. Threshold and excluded-command skips are excluded from *both* numerator and denominator — they're expected behaviour. If `ratio > 0.25`, stop and investigate `hooks.log` before proceeding. A high no-capture rate indicates a crashing `curate.py` or misconfigured `$ANTHROPIC_API_KEY`, not expected behaviour.
 - **Pre-log crash gap check.** A `curate.py` that dies before its first log append is invisible to `log.md`. To catch this, the shell hook writes `SESSION_END_RECEIVED\t<session_id>\t<timestamp>` to `hooks.log` *before* backgrounding `curate.py` (§2.1 step 2). At each weekly review, compare `grep -c '^SESSION_END_RECEIVED' ~/.claude/hooks.log` against `wc -l eval/state/log.md`. A gap > 3 for the week indicates `curate.py` is crashing before it logs — investigate the `CURATE_ERROR` lines in `hooks.log` for the affected session ids. Small steady gaps (1–3) are acceptable: the log is shared with other hooks, and races between shell-side marker write and log rotation can produce off-by-one drift.
-- **Only then** proceed to the existing recap writing steps.
+- **Only then** close the inbox sweep; the recap is already written.
 
 ## 3. Project structure
 
@@ -175,7 +176,7 @@ Add a new **step 5.5** before writing the recap:
     raw-baseline-prompt.md             # Path B — always summarizes, no judgment
   skill-patches/
     daily-devlog.step-9.5.md           # canonical step-9.5 block, injected by install.sh
-    weekly-recap.step-5.5.md           # canonical step-5.5 block, injected by install.sh
+    weekly-recap.step-8.md             # canonical step-8 block, injected by install.sh
   eval/
     .gitignore                         # ignores state/ (runtime-generated)
     fixtures/                          # checked-in test input
@@ -248,7 +249,7 @@ First install inserts the markers at the right anchor (after the existing confir
 
 The **command path** is the idempotency key: `install.sh` matches on the inner `command` value and replaces the whole entry if found, appends it if not. This means a user can re-run install after moving the repo — the old entry (different path) is removed and the new one is appended. `run-install-smoke.sh` (§6) covers this by running `install.sh` twice with a modified path between runs and asserting exactly one entry remains.
 
-**Anchor detection.** `daily-devlog.step-9.5.md` is inserted immediately after the line matching `<!-- anchor: after-confirmation-step -->` in the target SKILL.md. If this anchor comment is absent, `install.sh` exits 1 with an explicit error rather than guessing position. Same pattern for `weekly-recap.step-5.5.md` (anchor: `<!-- anchor: before-recap-writing -->`). **Adding both anchor comments to the target skill files is a pre-implementation task tracked in §9 Week-0 — `install.sh` will fail without them.**
+**Anchor detection.** `daily-devlog.step-9.5.md` is inserted immediately after the line matching `<!-- anchor: after-confirmation-step -->` in the target SKILL.md. If this anchor comment is absent, `install.sh` exits 1 with an explicit error rather than guessing position. Same pattern for `weekly-recap.step-8.md` (anchor: `<!-- anchor: after-recap-writing -->`). **Adding both anchor comments to the target skill files is a pre-implementation task tracked in §9 Week-0 — `install.sh` will fail without them.**
 
 **Safety.** Before modifying `~/.claude/settings.json` or any SKILL.md, `install.sh`:
 1. Copies the target file to `<file>.bak` in the same directory.

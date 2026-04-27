@@ -1,13 +1,14 @@
-## Step 5.5 — Inbox sweep (vault capture eval)
+### 8. Inbox sweep (vault capture eval)
 
-Before writing the recap, triage any captured artifacts from the eval window.
+The recap is written. Now triage any captured artifacts from the eval window. Tell the user clearly: "The recap is done. Here are the inbox items from this week to triage."
 
 1. List every file in `~/Obsidian/loics_vault/Inbox/auto/` and `~/Obsidian/loics_vault/Inbox/raw/` whose frontmatter `created` date falls within the recap's date range.
 2. For each file show: source (`claude-code-curated` or `claude-code-raw`), tags, one-line description from frontmatter.
 3. If there are more than 10 files, offer a bulk preamble first:
    `N items to review. [p]roceed item by item / [s]kip all (leave in Inbox) / [d]elete all raw`
    Apply the chosen bulk action and exit the loop; otherwise proceed item by item.
-4. For each item prompt: `[p]romote / [d]elete / [s]kip (stay in Inbox)`
+4. **Present items one at a time.** Show the item, wait for the user to respond, then move to the next. Do not list all items upfront.
+   For each item prompt: `[p]romote / [d]elete / [s]kip (stay in Inbox)`
    - **Promote** → ask target folder (`work/<project>/`, `notes_patterns/`, `notes_runbooks/`, etc.), move the file, record outcome.
    - **Delete** → remove file.
    - **Skip** → leave in place.
