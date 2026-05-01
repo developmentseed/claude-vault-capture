@@ -137,6 +137,38 @@ Add a new **step 9.5** after the existing confirmation step:
   - If either write fails, log the failure and do not block the promotion or the other write. Partial links are acceptable; blocked promotions are not.
   - The artifact file is NOT moved during devlog promotion — it remains in `Inbox/` and stays eligible for the next weekly sweep.
 
+#### `/vault-save` — on-demand document export
+
+A standalone skill (`~/.claude/skills/vault-save/SKILL.md`) that saves a Claude-generated markdown document to `Inbox/auto/` with structured frontmatter. Unlike the `SessionEnd` pipeline, it:
+- Fires **on explicit user intent**, not automatically — either via `/vault-save` or when natural language signals export intent (e.g. "save this to my vault", "export this spec").
+- Requires **no model API call** — the document already exists in the conversation; Claude writes the file directly using the Write tool.
+- Writes to `Inbox/auto/` with `source: claude-code-export` in frontmatter (distinguishable from `source: claude-code-curated`).
+- Follows the same title sanitization and slug generation rules as `curate.py` (`_sanitize_title`, `_make_slug`).
+- Does **not** use the secret scrubber — the user is explicitly choosing what to save and has full visibility into the content.
+
+**Frontmatter schema** (subset of the session-capture schema — `session_id`, `cost_usd`, and `redactions` are omitted as they are pipeline-specific):
+```yaml
+---
+title: <sanitized>
+type: spec | plan | adr | runbook | issue | note | document
+project: <git basename or 'home'>
+tags: [claude-code, <project>, <topic-tags>]
+source: claude-code-export
+created: YYYY-MM-DD
+model: <model-id>
+---
+```
+
+**Filename convention:** `YYYY-MM-DD-<slug>.md` (no `<sid8>` suffix). If the path already exists, Claude appends `-2`, `-3`, etc.
+
+**Auto-trigger:** `install.sh` injects a marker-bounded block into `~/.claude/CLAUDE.md` (global) that instructs Claude to invoke `/vault-save` when the user asks to save/export a document. This does not require a hook — it is a global instruction read by Claude at session start.
+
+**Install integration:** `install.sh` steps 5b and 5c create the skill file and inject the global CLAUDE.md trigger using the same idempotent marker-bounded approach as the existing skill patches. Canonical content lives in:
+- `skill-patches/vault-save.md` → copied to `~/.claude/skills/vault-save/SKILL.md`
+- `skill-patches/global-claude-md.vault-save-trigger.md` → injected into `~/.claude/CLAUDE.md`
+
+**Interaction with daily-devlog and weekly-recap:** because exported documents land in `Inbox/auto/`, step 9.5 (daily-devlog) and the weekly sweep (weekly-recap) already pick them up alongside session-captured artifacts. No changes to those skills are required. The `source: claude-code-export` field lets the user distinguish manually-exported docs from auto-captured ones during triage.
+
 #### `/weekly-recap` — weekly sweep
 
 Add a new **step 8** after writing the recap (steps 1–7 complete first):
@@ -177,6 +209,8 @@ Add a new **step 8** after writing the recap (steps 1–7 complete first):
   skill-patches/
     daily-devlog.step-9.5.md           # canonical step-9.5 block, injected by install.sh
     weekly-recap.step-8.md             # canonical step-8 block, injected by install.sh
+    vault-save.md                      # /vault-save skill — copied to ~/.claude/skills/vault-save/SKILL.md
+    global-claude-md.vault-save-trigger.md  # auto-trigger instructions — injected into ~/.claude/CLAUDE.md
   eval/
     .gitignore                         # ignores state/ (runtime-generated)
     fixtures/                          # checked-in test input
@@ -210,8 +244,10 @@ Add a new **step 8** after writing the recap (steps 1–7 complete first):
 
 ~/.claude/
   settings.json                        # SessionEnd hook registration (added by install.sh)
+  CLAUDE.md                            # vault-save auto-trigger injected by install.sh (marker-bounded)
   skills/daily-devlog/SKILL.md         # amended by install.sh (marker-bounded, idempotent)
   skills/weekly-recap/SKILL.md         # amended by install.sh (marker-bounded, idempotent)
+  skills/vault-save/SKILL.md           # created by install.sh (copied from skill-patches/vault-save.md)
   hooks.log                            # errors and redaction logs land here
 
 ~/Obsidian/loics_vault/

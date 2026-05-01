@@ -62,10 +62,13 @@ cat > "$FAKE_WEEKLY_SKILL" <<'EOF'
 
 ## Step 5: Gather data
 Collect data.
-<!-- anchor: before-recap-writing -->
 
 ## Step 6: Write
 Write the recap.
+
+## Step 7: Summary
+After writing, display a summary.
+<!-- anchor: after-recap-writing -->
 EOF
 
 echo "=== First install ==="
@@ -79,14 +82,19 @@ import json
 with open('$FAKE_SETTINGS') as f:
     d = json.load(f)
 hooks = d.get('hooks', {}).get('SessionEnd', [])
-assert any(h.get('name') == 'claude-vault-capture' for h in hooks), 'hook not found'
+assert any(
+    any(c.get('command', '').endswith('session-end-capture.sh') for c in h.get('hooks', []))
+    for h in hooks
+), 'hook not found'
 \""
+
+assert "claude-docs/ directory created" "[ -d '$FAKE_VAULT/claude-docs' ]"
 
 assert "daily-devlog SKILL.md has step-9.5 markers" \
     "grep -q 'BEGIN claude-vault-capture: step 9.5' '$FAKE_DAILY_SKILL'"
 
-assert "weekly-recap SKILL.md has step-5.5 markers" \
-    "grep -q 'BEGIN claude-vault-capture: step 5.5' '$FAKE_WEEKLY_SKILL'"
+assert "weekly-recap SKILL.md has step 8 markers" \
+    "grep -q 'BEGIN claude-vault-capture: step 8' '$FAKE_WEEKLY_SKILL'"
 
 assert "eval/state/ dir created" "[ -d '$ROOT/eval/state' ]"
 
@@ -105,15 +113,18 @@ import json
 with open('$FAKE_SETTINGS') as f:
     d = json.load(f)
 hooks = d.get('hooks', {}).get('SessionEnd', [])
-names = [h.get('name') for h in hooks]
-assert names.count('claude-vault-capture') == 1, f'expected 1, got {names.count(\"claude-vault-capture\")}'
+count = sum(
+    1 for h in hooks
+    if any(c.get('command', '').endswith('session-end-capture.sh') for c in h.get('hooks', []))
+)
+assert count == 1, f'expected 1 hook, got {count}'
 \""
 
 assert "daily-devlog has exactly one step-9.5 BEGIN marker" \
     "[ \$(grep -c 'BEGIN claude-vault-capture: step 9.5' '$FAKE_DAILY_SKILL') -eq 1 ]"
 
-assert "weekly-recap has exactly one step-5.5 BEGIN marker" \
-    "[ \$(grep -c 'BEGIN claude-vault-capture: step 5.5' '$FAKE_WEEKLY_SKILL') -eq 1 ]"
+assert "weekly-recap has exactly one step 8 BEGIN marker" \
+    "[ \$(grep -c 'BEGIN claude-vault-capture: step 8' '$FAKE_WEEKLY_SKILL') -eq 1 ]"
 
 # ── Summary ────────────────────────────────────────────────────────────────────
 echo ""

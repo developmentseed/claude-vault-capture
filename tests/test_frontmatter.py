@@ -3,7 +3,8 @@ import sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent / "hooks"))
 
 import pytest
-from curate import sanitize_title, make_slug, make_filename, render_frontmatter
+import yaml
+from curate import sanitize_title, sanitize_summary, make_slug, make_filename, render_frontmatter
 
 
 class TestSanitizeTitle:
@@ -138,3 +139,61 @@ class TestRenderFrontmatter:
         )
         assert fm.startswith("---")
         assert "---\n" in fm[3:]  # closing delimiter present
+
+
+class TestSanitizeSummary:
+    def test_strips_pipe(self):
+        assert "|" not in sanitize_summary("foo|bar")
+
+    def test_strips_closing_wikilink(self):
+        assert "]]" not in sanitize_summary("foo]]bar")
+
+    def test_strips_opening_wikilink(self):
+        assert "[[" not in sanitize_summary("foo[[bar")
+
+    def test_strips_hash(self):
+        assert "#" not in sanitize_summary("foo # bar")
+
+    def test_strips_backtick(self):
+        assert "`" not in sanitize_summary("foo `code` bar")
+
+    def test_strips_control_chars(self):
+        assert "\x00" not in sanitize_summary("foo\x00bar")
+        assert "\n" not in sanitize_summary("foo\nbar")
+        assert "\t" not in sanitize_summary("foo\tbar")
+
+    def test_collapses_internal_whitespace(self):
+        result = sanitize_summary("foo   bar   baz")
+        assert "  " not in result
+
+    def test_strips_leading_trailing_whitespace(self):
+        result = sanitize_summary("  hello world  ")
+        assert result == result.strip()
+
+    def test_truncates_to_140(self):
+        long_summary = "a" * 200
+        assert len(sanitize_summary(long_summary)) <= 140
+
+    def test_normal_summary_unchanged(self):
+        s = "Adds sanitize_summary helper with a 140-character cap for vault-save frontmatter"
+        assert sanitize_summary(s) == s
+
+    def test_deterministic(self):
+        s = "Refactor vault-save to write to claude-docs/ with summary and description"
+        assert sanitize_summary(s) == sanitize_summary(s)
+
+
+class TestDescriptionYaml:
+    def test_multiline_description_roundtrip(self):
+        description = "First paragraph of the description.\n\nSecond paragraph with more detail.\n\nThird paragraph concluding the description."
+        indented = "\n".join(f"  {line}" if line else "" for line in description.split("\n"))
+        yaml_body = f"title: Test\ndescription: |\n{indented}\n"
+        parsed = yaml.safe_load(yaml_body)
+        assert parsed["description"].strip() == description.strip()
+
+    def test_description_no_triple_dash(self):
+        description = "This description should not contain a triple dash line that would break YAML."
+        indented = "\n".join(f"  {line}" for line in description.split("\n"))
+        yaml_body = f"title: Test\ndescription: |\n{indented}\n"
+        parsed = yaml.safe_load(yaml_body)
+        assert "---" not in parsed["description"]

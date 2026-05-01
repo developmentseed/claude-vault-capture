@@ -49,7 +49,7 @@ LOG_REQUIRED_KEYS = [
     "cost_usd_a", "cost_usd_b", "redactions",
 ]
 
-_LOG_LOCK = threading.Lock()
+_STATE_LOCK = threading.Lock()  # guards both log.md and session-index.tsv
 
 # ── title sanitization ─────────────────────────────────────────────────────────
 
@@ -59,14 +59,18 @@ _MULTI_SPACE_RE = re.compile(r"\s+")
 
 def sanitize_title(title: str) -> str:
     """Strip chars unsafe in Obsidian wikilinks; collapse whitespace; truncate to 120."""
-    # Remove dangerous chars (pipe, brackets, hash, backtick, control chars)
     s = _BAD_CHARS_RE.sub(" ", title)
-    # Collapse whitespace runs
     s = _MULTI_SPACE_RE.sub(" ", s)
-    # Strip leading/trailing
     s = s.strip()
-    # Truncate at 120
     return s[:120]
+
+
+def sanitize_summary(s: str, max_len: int = 140) -> str:
+    """Same rules as sanitize_title but with a 140-char cap by default."""
+    s = _BAD_CHARS_RE.sub(" ", s)
+    s = _MULTI_SPACE_RE.sub(" ", s)
+    s = s.strip()
+    return s[:max_len]
 
 
 # ── slug generation ────────────────────────────────────────────────────────────
@@ -201,7 +205,7 @@ def uses_excluded_command(
 
 def is_above_token_limit(text: str) -> bool:
     """True if estimated token count exceeds CAPTURE_MAX_EST_TOKENS."""
-    limit = int(os.environ.get("CAPTURE_MAX_EST_TOKENS", str(CAPTURE_MAX_EST_TOKENS)))
+    limit = int(os.environ.get("CAPTURE_MAX_EST_TOKENS", "50000"))
     return len(text) // 4 > limit
 
 
@@ -263,7 +267,7 @@ def build_log_entry(
 def append_log(entry: dict, *, log_path: pathlib.Path = LOG_PATH) -> None:
     """Append one JSON line to log_path with cross-process flock + in-process lock."""
     line = json.dumps(entry) + "\n"
-    with _LOG_LOCK:
+    with _STATE_LOCK:
         log_path.parent.mkdir(parents=True, exist_ok=True)
         with open(log_path, "a", encoding="utf-8") as fh:
             fcntl.flock(fh, fcntl.LOCK_EX)
@@ -282,7 +286,7 @@ def _append_index(
 ) -> None:
     """Append one line to session-index.tsv, creating the file with header if absent."""
     index_path.parent.mkdir(parents=True, exist_ok=True)
-    with _LOG_LOCK:
+    with _STATE_LOCK:
         with open(index_path, "a", encoding="utf-8") as fh:
             fcntl.flock(fh, fcntl.LOCK_EX)
             if fh.tell() == 0:
@@ -411,8 +415,10 @@ def run_capture(
         date_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
 
     # ── 1. scrub transcript ───────────────────────────────────────────────────
+    role_map = {"user": "[USER]", "assistant": "[ASSISTANT]"}
     raw_text = "\n".join(
-        m.get("content", "") for m in transcript
+        f"{role_map.get(m.get('role', ''), '[UNKNOWN]')}: {m.get('content', '')}"
+        for m in transcript
     )
     scrubbed_text, redactions = scrub_mod.scrub(raw_text)
 
@@ -460,6 +466,16 @@ def run_capture(
 
     # ── 5. dedup check ────────────────────────────────────────────────────────
     if is_duplicate_session(session_id, index_path=index_path):
+        entry = build_log_entry(
+            session_id=session_id,
+            path_a=None, skip_reason_a="duplicate",
+            path_b=None, skip_reason_b="duplicate",
+            tokens_in_a=None, tokens_out_a=None,
+            tokens_in_b=None, tokens_out_b=None,
+            cost_usd_a=None, cost_usd_b=None,
+            redactions=redactions,
+        )
+        append_log(entry, log_path=log_path)
         return
 
     # ── 6. project derivation ─────────────────────────────────────────────────
@@ -483,6 +499,8 @@ def run_capture(
     with ThreadPoolExecutor(max_workers=2) as executor:
         future_a: Future = executor.submit(call_a)
         future_b: Future = executor.submit(call_b)
+    # executor.shutdown(wait=True) was called above — both futures are complete here;
+    # .result() retrieves the stored value or re-raises the stored exception.
 
     # Collect path A result
     try:
@@ -513,13 +531,19 @@ def run_capture(
     except Exception as exc:
         skip_reason_b = f"error:{type(exc).__name__}"
 
-    # ── 8. scrub model outputs ────────────────────────────────────────────────
+    # ── 8. scrub model outputs (title, body, source_links) ──────────────────
     if result_a:
-        body_a, _ = scrub_mod.scrub(result_a.get("body", ""))
-        result_a["body"] = body_a
+        result_a["title"], _ = scrub_mod.scrub(result_a.get("title", ""))
+        result_a["body"], _ = scrub_mod.scrub(result_a.get("body", ""))
+        result_a["source_links"] = [
+            scrub_mod.scrub(lnk)[0] for lnk in result_a.get("source_links", [])
+        ]
     if result_b:
-        body_b, _ = scrub_mod.scrub(result_b.get("body", ""))
-        result_b["body"] = body_b
+        result_b["title"], _ = scrub_mod.scrub(result_b.get("title", ""))
+        result_b["body"], _ = scrub_mod.scrub(result_b.get("body", ""))
+        result_b["source_links"] = [
+            scrub_mod.scrub(lnk)[0] for lnk in result_b.get("source_links", [])
+        ]
 
     # ── 9 & 10. sanitize title + write Path A ────────────────────────────────
     path_a_rel: str | None = None

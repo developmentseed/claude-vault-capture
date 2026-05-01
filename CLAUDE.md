@@ -32,6 +32,11 @@ session-end-capture.sh  →  curate.py (backgrounded, nohup)
 - `prompts/curation-system-prompt.md` / `prompts/raw-baseline-prompt.md` — the only model-facing prompts; every change is a commit.
 - `eval/state/log.md` — JSON-lines eval log (gitignored); `eval/state/session-index.tsv` — dedup index.
 
+**Skill integrations** (installed by `install.sh`):
+- `/daily-devlog` patch (`skill-patches/daily-devlog.step-9.5.md`) — Inbox sweep step after daily confirmation.
+- `/weekly-recap` patch (`skill-patches/weekly-recap.step-8.md`) — Inbox sweep step after recap writing.
+- `/vault-save` skill (`skill-patches/vault-save.md`) — on-demand export of a Claude-generated markdown document to `Inbox/auto/`. No model call; Claude writes the file directly with structured frontmatter (`source: claude-code-export`). Auto-triggered when the user asks to save/export a document to their vault (via `~/.claude/CLAUDE.md` injection from `skill-patches/global-claude-md.vault-save-trigger.md`).
+
 ## Invariants — never violate these
 
 - **<200ms on the close path.** All model work is backgrounded. Nothing synchronous on `SessionEnd`.
@@ -49,6 +54,7 @@ session-end-capture.sh  →  curate.py (backgrounded, nohup)
 | `excluded_command` | user turn starts with `/daily-devlog` or `/weekly-recap` |
 | `threshold` | < 3 user turns OR < 1500 chars of user content |
 | `token_limit` | `len(scrubbed_text) // 4 > CAPTURE_MAX_EST_TOKENS` (default 50 000) |
+| `duplicate` | session_id already present in session-index.tsv |
 | `model_returned_null` | Path A only — Sonnet returned the literal string `null` |
 | `malformed_json` | model response isn't valid JSON even after fence-stripping |
 | `timeout` | API call exceeded 30 s |

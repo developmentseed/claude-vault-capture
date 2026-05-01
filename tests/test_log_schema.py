@@ -132,6 +132,20 @@ class TestLogSchema:
         assert _valid(e)
         assert e["skip_reason_a"].startswith("error:")
 
+    def test_duplicate_skip(self):
+        e = build_log_entry(
+            session_id="s1",
+            path_a=None, skip_reason_a="duplicate",
+            path_b=None, skip_reason_b="duplicate",
+            tokens_in_a=None, tokens_out_a=None,
+            tokens_in_b=None, tokens_out_b=None,
+            cost_usd_a=None, cost_usd_b=None,
+            redactions={},
+        )
+        assert _valid(e)
+        assert e["skip_reason_a"] == "duplicate"
+        assert e["skip_reason_b"] == "duplicate"
+
     def test_invariant_never_both_null(self):
         """Both path and skip_reason cannot be null simultaneously per path."""
         e = build_log_entry(
