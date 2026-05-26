@@ -36,5 +36,5 @@ Otherwise proceed item by item directly.
 - If `eval/state/session-index.tsv` does not exist — log a warning and skip (do not count as a miss).
 
 **After triage**, append today's counts as a new line to `eval/state/metrics.md`:
-`type\tdate\tinbox_count\tpromoted\tdeleted\tskipped\tmisses`
-Where `type` is `daily` and `inbox_count` is the total number of files found in Inbox for today (before any action was taken).
+`type\tdate\tinbox_count\tpromoted\tdeleted\tskipped\tmisses\tno_capture_sessions`
+Where `type` is `daily`, `inbox_count` is the total number of files found in Inbox for today (before any action was taken), and `no_capture_sessions` is always `0` for daily rows (this column exists to unify the schema with weekly rows).

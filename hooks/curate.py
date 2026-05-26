@@ -76,13 +76,16 @@ def sanitize_summary(s: str, max_len: int = 140) -> str:
 # ── slug generation ────────────────────────────────────────────────────────────
 
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
-_CODE_FENCE_RE = re.compile(r"^```(?:json)?\s*\n(.*)\n```\s*$", re.DOTALL)
+_CODE_FENCE_RE = re.compile(
+    r"(?:^|\n)\s*`{3,}(?:[Jj][Ss][Oo][Nn])?\s*\n(.*?)\n\s*`{3,}\s*(?:\n|$)",
+    re.DOTALL,
+)
 
 
 def _strip_fences(text: str) -> str:
     """Strip optional markdown code fences the model sometimes wraps around JSON."""
-    m = _CODE_FENCE_RE.match(text)
-    return m.group(1) if m else text
+    m = _CODE_FENCE_RE.search(text)
+    return m.group(1).strip() if m else text
 
 
 def make_slug(title: str) -> str:
@@ -314,13 +317,21 @@ def _call_path_a(scrubbed_text: str, prompts_dir: pathlib.Path) -> dict | None:
         messages=[{"role": "user", "content": scrubbed_text}],
         timeout=TIMEOUT_SECONDS,
     )
+    usage = {
+        "tokens_in": msg.usage.input_tokens,
+        "tokens_out": msg.usage.output_tokens,
+        "cost_usd": _estimate_cost_a(msg.usage.input_tokens, msg.usage.output_tokens),
+    }
     raw = _strip_fences(msg.content[0].text.strip())
     if raw.lower() == "null":
-        return None
-    data = json.loads(raw)
-    data["tokens_in"] = msg.usage.input_tokens
-    data["tokens_out"] = msg.usage.output_tokens
-    data["cost_usd"] = _estimate_cost_a(msg.usage.input_tokens, msg.usage.output_tokens)
+        return {**usage, "_null": True}
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        _log_error(f"PATH_A malformed_json: {raw[:200]}")
+        exc.usage = usage  # type: ignore[attr-defined]
+        raise
+    data.update(usage)
     return data
 
 
@@ -340,11 +351,19 @@ def _call_path_b(scrubbed_text: str, prompts_dir: pathlib.Path) -> dict:
         messages=[{"role": "user", "content": scrubbed_text}],
         timeout=TIMEOUT_SECONDS,
     )
+    usage = {
+        "tokens_in": msg.usage.input_tokens,
+        "tokens_out": msg.usage.output_tokens,
+        "cost_usd": _estimate_cost_b(msg.usage.input_tokens, msg.usage.output_tokens),
+    }
     raw = _strip_fences(msg.content[0].text.strip())
-    data = json.loads(raw)
-    data["tokens_in"] = msg.usage.input_tokens
-    data["tokens_out"] = msg.usage.output_tokens
-    data["cost_usd"] = _estimate_cost_b(msg.usage.input_tokens, msg.usage.output_tokens)
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        _log_error(f"PATH_B malformed_json: {raw[:200]}")
+        exc.usage = usage  # type: ignore[attr-defined]
+        raise
+    data.update(usage)
     return data
 
 
@@ -505,14 +524,20 @@ def run_capture(
     # Collect path A result
     try:
         result_a = future_a.result()
-        if result_a is None:
-            skip_reason_a = "model_returned_null"
-        else:
+        if result_a is not None:
             tokens_in_a = result_a.get("tokens_in")
             tokens_out_a = result_a.get("tokens_out")
             cost_usd_a = result_a.get("cost_usd")
-    except json.JSONDecodeError:
+        if result_a is None or result_a.get("_null"):
+            skip_reason_a = "model_returned_null"
+            result_a = None
+    except json.JSONDecodeError as exc:
         skip_reason_a = "malformed_json"
+        usage = getattr(exc, "usage", None)
+        if usage:
+            tokens_in_a = usage.get("tokens_in")
+            tokens_out_a = usage.get("tokens_out")
+            cost_usd_a = usage.get("cost_usd")
     except TimeoutError:
         skip_reason_a = "timeout"
     except Exception as exc:
@@ -524,8 +549,13 @@ def run_capture(
         tokens_in_b = result_b.get("tokens_in")
         tokens_out_b = result_b.get("tokens_out")
         cost_usd_b = result_b.get("cost_usd")
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as exc:
         skip_reason_b = "malformed_json"
+        usage = getattr(exc, "usage", None)
+        if usage:
+            tokens_in_b = usage.get("tokens_in")
+            tokens_out_b = usage.get("tokens_out")
+            cost_usd_b = usage.get("cost_usd")
     except TimeoutError:
         skip_reason_b = "timeout"
     except Exception as exc:

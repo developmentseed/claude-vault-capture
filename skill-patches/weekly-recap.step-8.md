@@ -34,9 +34,9 @@ Skip entries that are already in the recap (from the catchup pass above).
 2. Read `eval/state/log.md`. Count for the week:
    - Total log entries
    - Threshold-skipped entries (`skip_reason_a == "threshold"`)
-   - No-capture sessions: entries where both `path_a` and `path_b` are `null` AND `skip_reason_a != "threshold"`
+   - No-capture sessions: entries where both `path_a` and `path_b` are `null` AND `skip_reason_a NOT IN ("threshold", "excluded_command")`
 3. Append a weekly summary row to `eval/state/metrics.md`:
    `type\tweek\tinbox_count\tpromoted\tdeleted\tskipped\tmisses\tno_capture_sessions`
    Where `type` is `weekly` and `inbox_count` is the sum of `inbox_count` from the week's daily rows.
-4. **25% crash alarm:** compute `ratio = no_capture_sessions / (total_log_entries − threshold_skipped_entries)`. If `ratio > 0.25`, note this prominently — it likely indicates a crashing `curate.py` or misconfigured `$ANTHROPIC_API_KEY`.
+4. **25% crash alarm:** compute `ratio = no_capture_sessions / (total_log_entries − threshold_skipped_entries − excluded_command_entries)`. Threshold and excluded-command skips are excluded from both numerator and denominator — they are expected behaviour, not failure. If `ratio > 0.25`, note this prominently — it likely indicates a crashing `curate.py` or misconfigured `$ANTHROPIC_API_KEY`.
 5. If `eval/state/session-index.tsv` does not exist — log a warning in the recap and skip the miss check for all sessions this week.

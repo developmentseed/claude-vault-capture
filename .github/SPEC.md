@@ -18,7 +18,7 @@ Both paths share the **Inbox pattern**: every capture goes to `Inbox/`, never di
 - **user content** — concatenated text of all user turns; its char count is compared against the threshold.
 - **kept rate** — fraction of Inbox captures promoted into a structured vault folder during triage.
 - **miss rate** — fraction of Path B promotions where `eval/state/session-index.tsv` shows `path_a` was `null` (no curated sibling was ever written) for that `session_id`. False-negative signal for the curation prompt.
-- **no-capture session** — a session where neither path wrote a file for a reason *other than* the small-signal threshold (i.e. an error, timeout, or token-limit skip). Drives the 25% crash alarm in §2.3.
+- **no-capture session** — a session where neither path wrote a file for a reason *other than* the small-signal threshold or the excluded-command filter (i.e. an error, timeout, or token-limit skip). Drives the 25% crash alarm in §2.3.
 
 ### Why run both
 
