@@ -19,9 +19,15 @@ if [[ -z "$SESSION_ID" || -z "$TRANSCRIPT_PATH" ]]; then
     exit 0
 fi
 
-# Claude Code sanitizes its environment before spawning hooks, so ANTHROPIC_API_KEY
-# is often absent even when the desktop app has it. Fall back to a key file.
-if [[ -z "${ANTHROPIC_API_KEY:-}" && -f "$HOME/.claude_vault_token" ]]; then
+# Claude Code sanitizes its environment before spawning hooks, so credentials are
+# often absent even when the desktop app has them. Fall back to token files.
+if [[ "${CAPTURE_USE_SUBSCRIPTION:-}" == "1" ]]; then
+    # Subscription mode: the Claude Agent SDK authenticates with this OAuth token
+    # (generate it once with `claude setup-token`).
+    if [[ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" && -f "$HOME/.claude_vault_oauth_token" ]]; then
+        export CLAUDE_CODE_OAUTH_TOKEN="$(cat "$HOME/.claude_vault_oauth_token")"
+    fi
+elif [[ -z "${ANTHROPIC_API_KEY:-}" && -f "$HOME/.claude_vault_token" ]]; then
     export ANTHROPIC_API_KEY="$(cat "$HOME/.claude_vault_token")"
 fi
 

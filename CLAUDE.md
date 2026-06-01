@@ -63,7 +63,8 @@ session-end-capture.sh  →  curate.py (backgrounded, nohup)
 ## Environment
 
 - Python 3.14, venv at `.venv/`. Run via `uv run` or `.venv/bin/python3`.
-- `ANTHROPIC_API_KEY` must be set. If absent in hook env, `session-end-capture.sh` reads `~/.claude_vault_token` as fallback.
+- `ANTHROPIC_API_KEY` must be set (API-key mode). If absent in hook env, `session-end-capture.sh` reads `~/.claude_vault_token` as fallback.
+- `CAPTURE_USE_SUBSCRIPTION=1` — route both model calls through the Claude Agent SDK (Claude Code runtime) so they bill to a Max subscription instead of a metered key. Auth via `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`; hook falls back to `~/.claude_vault_oauth_token`). Requires `claude-agent-sdk` + the `claude` CLI. In this mode `cost_usd` is an *estimated* API-equivalent, not billed, and `max_tokens` is not enforced (runtime controls output). The model-call transport is the only difference — scrub/filter/parse/write are identical.
 - `CAPTURE_MOCK_SDK=1` — skip real API calls; use `eval/fixtures/mock-responses.json`.
 - `CAPTURE_MAX_EST_TOKENS` — override token ceiling (default 50 000).
 

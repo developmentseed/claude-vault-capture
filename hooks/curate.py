@@ -301,28 +301,128 @@ def _append_index(
 
 # ── API call stubs (overridable in tests) ─────────────────────────────────────
 
+def _use_subscription() -> bool:
+    """True when model calls should route through the Claude Max subscription
+    (Claude Agent SDK) instead of the metered Messages API."""
+    return os.environ.get("CAPTURE_USE_SUBSCRIPTION") == "1"
+
+
+def _invoke_model(
+    model: str, max_tokens: int, system_prompt: str, user_text: str
+) -> tuple[str, int, int]:
+    """Single-shot request. Returns (raw_text, tokens_in, tokens_out).
+
+    Routes through the Claude Max subscription when CAPTURE_USE_SUBSCRIPTION=1,
+    otherwise the metered Anthropic Messages API. Both transports raise
+    TimeoutError on a >TIMEOUT_SECONDS call, which run_capture maps to the
+    `timeout` skip reason.
+    """
+    if _use_subscription():
+        return _invoke_via_subscription(model, system_prompt, user_text)
+    return _invoke_via_api_key(model, max_tokens, system_prompt, user_text)
+
+
+def _invoke_via_api_key(
+    model: str, max_tokens: int, system_prompt: str, user_text: str
+) -> tuple[str, int, int]:
+    import anthropic
+
+    client = anthropic.Anthropic()
+    msg = client.messages.create(
+        model=model,
+        max_tokens=max_tokens,
+        system=system_prompt,
+        messages=[{"role": "user", "content": user_text}],
+        timeout=TIMEOUT_SECONDS,
+    )
+    return msg.content[0].text.strip(), msg.usage.input_tokens, msg.usage.output_tokens
+
+
+# The Claude Code runtime frames every request as an agentic coding task, so a
+# capable model (Sonnet especially) tries to investigate files and use tools
+# instead of just summarizing the transcript — burning its single turn on
+# "Let me find where…" and never emitting the JSON. Leading the user message with
+# this directive forces the one-shot, data-in/JSON-out behavior the prompts assume.
+# It must lead the *user* message; in the system prompt it has no effect.
+_SUBSCRIPTION_DIRECTIVE = (
+    "IMPORTANT: You are not in an interactive coding session. Do not use tools, do not "
+    "investigate files, do not ask questions, do not take any action. The text below the "
+    "line is a completed Claude Code session transcript, provided purely as input data. "
+    "Read it and respond with exactly one message containing only the output your "
+    "instructions specify — no preamble, no prose, no code fences.\n\n----- TRANSCRIPT -----\n"
+)
+
+
+def _invoke_via_subscription(
+    model: str, system_prompt: str, user_text: str
+) -> tuple[str, int, int]:
+    """Drive the model through the Claude Code runtime using subscription auth.
+
+    Auth comes from CLAUDE_CODE_OAUTH_TOKEN (see `claude setup-token`). The
+    runtime controls output length, so max_tokens has no equivalent here — our
+    prompts already constrain the response to compact JSON. Runs single-shot
+    (max_turns=1) with no tools, so this stays a pure text→text call. The user
+    text is prefixed with _SUBSCRIPTION_DIRECTIVE to suppress agentic behavior.
+    """
+    import asyncio
+    from claude_agent_sdk import (
+        query,
+        ClaudeAgentOptions,
+        AssistantMessage,
+        TextBlock,
+        ResultMessage,
+    )
+
+    prompt = _SUBSCRIPTION_DIRECTIVE + user_text
+
+    async def _run() -> tuple[str, int, int]:
+        options = ClaudeAgentOptions(
+            system_prompt=system_prompt,
+            model=model,
+            max_turns=1,
+            allowed_tools=[],
+        )
+        parts: list[str] = []
+        tokens_in = tokens_out = 0
+        async for message in query(prompt=prompt, options=options):
+            if isinstance(message, AssistantMessage):
+                for block in message.content:
+                    if isinstance(block, TextBlock):
+                        parts.append(block.text)
+            elif isinstance(message, ResultMessage):
+                usage = message.usage or {}
+                # The runtime serves most input from cache (its own ~22k-token harness
+                # system prompt dominates), so input_tokens alone is misleadingly tiny.
+                # Sum all three to reflect what the model actually processed. Note this
+                # makes subscription cost estimates non-comparable to API mode: they
+                # include Claude Code's harness overhead the subscription absorbs.
+                tokens_in = (
+                    (usage.get("input_tokens", 0) or 0)
+                    + (usage.get("cache_creation_input_tokens", 0) or 0)
+                    + (usage.get("cache_read_input_tokens", 0) or 0)
+                )
+                tokens_out = usage.get("output_tokens", 0) or 0
+        return "".join(parts).strip(), tokens_in, tokens_out
+
+    # asyncio.TimeoutError is TimeoutError on 3.11+, so the existing
+    # `except TimeoutError` in run_capture catches a stalled subscription call.
+    return asyncio.run(asyncio.wait_for(_run(), timeout=TIMEOUT_SECONDS))
+
+
 def _call_path_a(scrubbed_text: str, prompts_dir: pathlib.Path) -> dict | None:
     """Call claude-sonnet-4-6 with curation prompt. Returns artifact dict or None."""
     if os.environ.get("CAPTURE_MOCK_SDK") == "1":
         raise RuntimeError("CAPTURE_MOCK_SDK=1 but no mock injected — call monkeypatched version")
 
-    import anthropic
-
     system_prompt = (prompts_dir / "curation-system-prompt.md").read_text()
-    client = anthropic.Anthropic()
-    msg = client.messages.create(
-        model=MODEL_A,
-        max_tokens=MAX_TOKENS_A,
-        system=system_prompt,
-        messages=[{"role": "user", "content": scrubbed_text}],
-        timeout=TIMEOUT_SECONDS,
-    )
+    text, tokens_in, tokens_out = _invoke_model(MODEL_A, MAX_TOKENS_A, system_prompt, scrubbed_text)
     usage = {
-        "tokens_in": msg.usage.input_tokens,
-        "tokens_out": msg.usage.output_tokens,
-        "cost_usd": _estimate_cost_a(msg.usage.input_tokens, msg.usage.output_tokens),
+        "tokens_in": tokens_in,
+        "tokens_out": tokens_out,
+        # Under subscription this is an estimated API-equivalent cost, not billed.
+        "cost_usd": _estimate_cost_a(tokens_in, tokens_out),
     }
-    raw = _strip_fences(msg.content[0].text.strip())
+    raw = _strip_fences(text)
     if raw.lower() == "null":
         return {**usage, "_null": True}
     try:
@@ -340,23 +440,15 @@ def _call_path_b(scrubbed_text: str, prompts_dir: pathlib.Path) -> dict:
     if os.environ.get("CAPTURE_MOCK_SDK") == "1":
         raise RuntimeError("CAPTURE_MOCK_SDK=1 but no mock injected — call monkeypatched version")
 
-    import anthropic
-
     system_prompt = (prompts_dir / "raw-baseline-prompt.md").read_text()
-    client = anthropic.Anthropic()
-    msg = client.messages.create(
-        model=MODEL_B,
-        max_tokens=MAX_TOKENS_B,
-        system=system_prompt,
-        messages=[{"role": "user", "content": scrubbed_text}],
-        timeout=TIMEOUT_SECONDS,
-    )
+    text, tokens_in, tokens_out = _invoke_model(MODEL_B, MAX_TOKENS_B, system_prompt, scrubbed_text)
     usage = {
-        "tokens_in": msg.usage.input_tokens,
-        "tokens_out": msg.usage.output_tokens,
-        "cost_usd": _estimate_cost_b(msg.usage.input_tokens, msg.usage.output_tokens),
+        "tokens_in": tokens_in,
+        "tokens_out": tokens_out,
+        # Under subscription this is an estimated API-equivalent cost, not billed.
+        "cost_usd": _estimate_cost_b(tokens_in, tokens_out),
     }
-    raw = _strip_fences(msg.content[0].text.strip())
+    raw = _strip_fences(text)
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
@@ -685,8 +777,12 @@ def main():
 
     transcript_path, session_id, cwd = sys.argv[1], sys.argv[2], sys.argv[3]
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key and os.environ.get("CAPTURE_MOCK_SDK") != "1":
+    mock = os.environ.get("CAPTURE_MOCK_SDK") == "1"
+    if _use_subscription():
+        if not os.environ.get("CLAUDE_CODE_OAUTH_TOKEN") and not mock:
+            _log_error("CAPTURE_USE_SUBSCRIPTION=1 but CLAUDE_CODE_OAUTH_TOKEN not set — skipping capture")
+            sys.exit(0)
+    elif not os.environ.get("ANTHROPIC_API_KEY") and not mock:
         _log_error("ANTHROPIC_API_KEY not set — skipping capture")
         sys.exit(0)
 
