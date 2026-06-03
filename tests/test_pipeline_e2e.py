@@ -171,3 +171,111 @@ class TestScrubbingStages:
         assert secret not in written
         assert "abc123SECRETtoken456value" not in written
         assert "<redacted:bearer>" in written
+
+
+def _write_jsonl(path: pathlib.Path, rows: list[dict]) -> pathlib.Path:
+    path.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    return path
+
+
+def _no_files(temp_vault) -> bool:
+    return (
+        list((temp_vault.vault_dir / "Inbox" / "auto").glob("*.md")) == []
+        and list((temp_vault.vault_dir / "Inbox" / "raw").glob("*.md")) == []
+    )
+
+
+class TestEdgeCaseSkips:
+    """Each guard writes exactly one log entry, no files, and never calls a model."""
+
+    def test_empty_transcript_threshold(self, run_main, monkeypatch, temp_vault, tmp_path):
+        monkeypatch.setenv("CAPTURE_MOCK_SDK", "1")
+        tp = tmp_path / "empty.jsonl"
+        tp.write_text("")
+        entries = run_main(tp, "empty00112233aabb0005", "/tmp")
+        assert _no_files(temp_vault)
+        assert len(entries) == 1
+        assert entries[0]["skip_reason_a"] == "threshold"
+        assert entries[0]["skip_reason_b"] == "threshold"
+
+    def test_assistant_only_threshold(self, run_main, monkeypatch, temp_vault, tmp_path):
+        monkeypatch.setenv("CAPTURE_MOCK_SDK", "1")
+        tp = _write_jsonl(
+            tmp_path / "asst.jsonl",
+            [{"type": "assistant", "message": {"content": "a" * 2000}} for _ in range(3)],
+        )
+        entries = run_main(tp, "asst00112233aabb0006", "/tmp")
+        assert _no_files(temp_vault)
+        assert entries[0]["skip_reason_a"] == "threshold"
+        assert entries[0]["skip_reason_b"] == "threshold"
+
+    def test_excluded_command(self, run_main, monkeypatch, temp_vault, tmp_path):
+        monkeypatch.setenv("CAPTURE_MOCK_SDK", "1")
+        tp = _write_jsonl(
+            tmp_path / "excluded.jsonl",
+            [
+                {"type": "user", "message": {"content": "/daily-devlog wrap up today"}},
+                {"type": "user", "message": {"content": "more " + "x" * 800}},
+                {"type": "user", "message": {"content": "and " + "y" * 800}},
+            ],
+        )
+        entries = run_main(tp, "excl00112233aabb0007", "/tmp")
+        assert _no_files(temp_vault)
+        assert entries[0]["skip_reason_a"] == "excluded_command"
+        assert entries[0]["skip_reason_b"] == "excluded_command"
+
+    def test_token_limit(self, run_main, monkeypatch, temp_vault):
+        """Above-threshold transcript + tiny ceiling → token_limit (not threshold)."""
+        monkeypatch.setenv("CAPTURE_MOCK_SDK", "1")
+        monkeypatch.setenv("CAPTURE_MAX_EST_TOKENS", "10")
+        entries = run_main(_transcript("adr-worthy"), "tok00112233aabb0008", "/tmp")
+        assert _no_files(temp_vault)
+        assert entries[0]["skip_reason_a"] == "token_limit"
+        assert entries[0]["skip_reason_b"] == "token_limit"
+
+    def test_duplicate_session(self, run_main, mock_from_responses, temp_vault):
+        """Second capture of the same session_id writes nothing new and logs duplicate."""
+        mock_from_responses("adr-worthy")
+        sid = "dup00112233aabbccdd09"
+        run_main(_transcript("adr-worthy"), sid, "/tmp")
+        auto_after_first = list((temp_vault.vault_dir / "Inbox" / "auto").glob("*.md"))
+        assert len(auto_after_first) == 1
+
+        entries = run_main(_transcript("adr-worthy"), sid, "/tmp")
+        # still exactly one file per path — no second artifact
+        assert len(list((temp_vault.vault_dir / "Inbox" / "auto").glob("*.md"))) == 1
+        assert len(list((temp_vault.vault_dir / "Inbox" / "raw").glob("*.md"))) == 1
+        assert entries[-1]["skip_reason_a"] == "duplicate"
+        assert entries[-1]["skip_reason_b"] == "duplicate"
+
+
+class TestCredentialGuards:
+    """main() must exit 0 (no capture, no files) when the required credential is absent."""
+
+    def test_api_mode_missing_key_exits(self, run_main, monkeypatch, temp_vault):
+        monkeypatch.delenv("CAPTURE_MOCK_SDK", raising=False)
+        monkeypatch.delenv("CAPTURE_USE_SUBSCRIPTION", raising=False)
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        with pytest.raises(SystemExit) as exc:
+            run_main(_transcript("adr-worthy"), "nokey00112233aabb0010", "/tmp")
+        assert exc.value.code == 0
+        assert _no_files(temp_vault)
+        assert not temp_vault.log_path.exists()
+
+    def test_subscription_mode_missing_token_exits(self, run_main, monkeypatch, temp_vault):
+        monkeypatch.delenv("CAPTURE_MOCK_SDK", raising=False)
+        monkeypatch.setenv("CAPTURE_USE_SUBSCRIPTION", "1")
+        monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
+        with pytest.raises(SystemExit) as exc:
+            run_main(_transcript("adr-worthy"), "notok00112233aabb0011", "/tmp")
+        assert exc.value.code == 0
+        assert _no_files(temp_vault)
+
+    def test_missing_transcript_exits_gracefully(self, run_main, monkeypatch, temp_vault, tmp_path):
+        monkeypatch.setenv("CAPTURE_MOCK_SDK", "1")
+        missing = tmp_path / "does-not-exist.jsonl"
+        with pytest.raises(SystemExit) as exc:
+            run_main(missing, "gone00112233aabb0012", "/tmp")
+        assert exc.value.code == 0
+        assert _no_files(temp_vault)
+        assert not temp_vault.log_path.exists()
