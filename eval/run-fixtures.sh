@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
-# Run each fixture through curate.py. Uses CAPTURE_MOCK_SDK=1 by default.
-# Unset CAPTURE_MOCK_SDK and set CAPTURE_LIVE_TESTS=1 to run against the real API.
+# Run each fixture through curate.py and VALIDATE the written artifacts.
+#
+# Default (CAPTURE_MOCK_SDK=1): inject the recorded mock-responses.json artifacts
+# into _call_path_a/_call_path_b (same logic as the mock_from_responses pytest
+# fixture) and assert the pipeline writes exactly the files the mock implies and
+# logs no error skip reason. This is a real output check — it is NOT always-green.
+#
+# Live (CAPTURE_LIVE_TESTS=1): unset the mock and run against the real API; assert
+# only that the pipeline completed without an error skip reason.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -31,49 +38,95 @@ run_fixture() {
         return
     fi
 
-    # Build a minimal JSONL transcript from the fixture
-    local transcript_tmp
-    transcript_tmp=$(mktemp)
-    # Treat entire fixture as one user message for mock purposes
-    python3 -c "
-import json, sys
-content = open('$fixture').read()
-print(json.dumps({'role': 'user', 'content': content}))
-print(json.dumps({'role': 'user', 'content': content}))
-print(json.dumps({'role': 'user', 'content': content}))
-" > "$transcript_tmp"
-
-    local session_id="fixture-${name}-$(date +%s)"
+    local session_id="fixture-${name}-$(date +%s)-$RANDOM"
     local log_file="$LOG_TMP/log-${name}.md"
     local index_file="$LOG_TMP/index-${name}.tsv"
 
-    if VAULT_DIR="$VAULT_TMP" python3 -c "
-import sys, pathlib, json
-sys.path.insert(0, '$HOOKS')
+    # The python block builds the transcript, injects mocks (mock mode), runs the
+    # pipeline, and asserts the written files match what the mock entry implies.
+    # A non-zero exit here is a real failure, not a swallowed one.
+    if FIXTURE_NAME="$name" FIXTURE_PATH="$fixture" \
+       SESSION_ID="$session_id" VAULT_TMP="$VAULT_TMP" \
+       LOG_FILE="$log_file" INDEX_FILE="$index_file" \
+       MOCK_RESPONSES="$FIXTURES/mock-responses.json" \
+       python3 - <<'PY' 2>&1; then
+import json, os, pathlib, sys
+sys.path.insert(0, os.environ["PYTHONPATH"].split(":")[0])
 import curate
 
-msgs = []
-with open('$transcript_tmp') as f:
-    for line in f:
-        msgs.append(json.loads(line))
+name = os.environ["FIXTURE_NAME"]
+fixture_path = os.environ["FIXTURE_PATH"]
+session_id = os.environ["SESSION_ID"]
+vault_dir = pathlib.Path(os.environ["VAULT_TMP"]) / name
+mock_mode = os.environ.get("CAPTURE_MOCK_SDK") == "1"
+
+content = open(fixture_path).read()
+# Repeat enough to clear the threshold (>=3 user turns, >=1500 chars).
+transcript = [{"role": "user", "content": content} for _ in range(4)]
+
+if mock_mode:
+    responses = json.loads(open(os.environ["MOCK_RESPONSES"]).read())
+    if name not in responses:
+        print(f"no mock entry for {name!r} in mock-responses.json")
+        sys.exit(1)
+    entry = responses[name]
+    a, b = entry["path_a"], entry["path_b"]
+
+    def _mock_a(*args, **kwargs):
+        return None if a is None else dict(a)
+
+    def _mock_b(*args, **kwargs):
+        if isinstance(b, str):
+            raise json.JSONDecodeError("malformed path_b", b, 0)
+        return dict(b)
+
+    curate._call_path_a = _mock_a
+    curate._call_path_b = _mock_b
 
 curate.run_capture(
-    transcript=msgs,
-    session_id='$session_id',
-    cwd='/tmp',
-    vault_dir='$VAULT_TMP',
-    log_path=pathlib.Path('$log_file'),
-    index_path=pathlib.Path('$index_file'),
-    date_str='$(date +%Y-%m-%d)',
+    transcript=transcript,
+    session_id=session_id,
+    cwd="/tmp",
+    vault_dir=str(vault_dir),
+    log_path=pathlib.Path(os.environ["LOG_FILE"]),
+    index_path=pathlib.Path(os.environ["INDEX_FILE"]),
+    date_str="2026-01-01",
 )
-" 2>&1; then
+
+log_lines = [l for l in pathlib.Path(os.environ["LOG_FILE"]).read_text().splitlines() if l.strip()]
+assert log_lines, "no log entry written"
+log = json.loads(log_lines[-1])
+
+auto = list((vault_dir / "Inbox" / "auto").glob("*.md"))
+raw = list((vault_dir / "Inbox" / "raw").glob("*.md"))
+
+errors = []
+for k in ("skip_reason_a", "skip_reason_b"):
+    if (log.get(k) or "").startswith("error:"):
+        errors.append(f"{k}={log[k]} (pipeline error swallowed)")
+
+if mock_mode:
+    expect_a = isinstance(a, dict)
+    expect_b = isinstance(b, dict)
+    if bool(auto) != expect_a:
+        errors.append(f"Path A file present={bool(auto)} but expected={expect_a}")
+    if bool(raw) != expect_b:
+        errors.append(f"Path B file present={bool(raw)} but expected={expect_b}")
+    if a is None and log.get("skip_reason_a") != "model_returned_null":
+        errors.append(f"expected model_returned_null, got {log.get('skip_reason_a')!r}")
+    if isinstance(b, str) and log.get("skip_reason_b") != "malformed_json":
+        errors.append(f"expected malformed_json, got {log.get('skip_reason_b')!r}")
+
+if errors:
+    print("; ".join(errors))
+    sys.exit(1)
+PY
         echo "PASS $name"
         PASS=$((PASS + 1))
     else
         echo "FAIL $name"
         FAIL=$((FAIL + 1))
     fi
-    rm -f "$transcript_tmp"
 }
 
 for fixture_file in "$FIXTURES"/*.txt; do
