@@ -6,8 +6,12 @@ The recap is written. Now surface any inbox items not yet triaged during the wee
 1. List every file in `~/Obsidian/loics_vault/Inbox/auto/` and `~/Obsidian/loics_vault/Inbox/raw/` whose frontmatter `created` date falls within the recap's date range. These are items skipped or missed during daily triage.
 2. If none remain, skip to step 8b.
 3. If items remain, tell the user: "The recap is done. N inbox items from this week were not triaged yet."
-   Offer: `[p]roceed item by item / [s]kip all (leave in Inbox)`
-4. **Present items one at a time.** For each item show: source, tags, one-line description from frontmatter.
+   Offer a triage mode — default to high-value only and recommend it:
+   `[h]igh-value only (recommended) / [a]ll items one by one / [s]kip all (leave in Inbox)`
+   - **High-value only** (default) — assess each item from its frontmatter `description`, `source`, and tags, and surface *only* the items worth keeping (concrete decisions, reusable patterns/runbooks, durable project context). Leave low-value items (routine chatter, one-off debugging with no reusable outcome, near-duplicates) in Inbox without prompting.
+   - **All items one by one** — present every item regardless of assessed value.
+   - **Skip all** — leave everything in Inbox.
+4. **Present each surfaced item one at a time.** For each item show: source, tags, one-line description from frontmatter.
    Prompt: `[p]romote / [d]elete / [s]kip (stay in Inbox)`
    - **Promote** → ask target folder (`work/<project>/`, `notes_patterns/`, `notes_runbooks/`, etc.), move the file, record outcome.
    - **Delete** → remove file.
