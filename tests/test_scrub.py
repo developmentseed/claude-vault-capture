@@ -215,6 +215,12 @@ class TestMalformedRule:
         """A malformed pattern is skipped; scrub returns original text; no propagation."""
         import scrub_rules, scrub as scrub_mod, importlib
 
+        # Set the failures path BEFORE reloading: reload re-runs scrub.py's
+        # module-level _compile_rules(), which logs the bad rule on import. If
+        # the env override isn't set yet, that log leaks to the real
+        # eval/state/scrub-failures.md instead of tmp_path.
+        os.environ["SCRUB_FAILURES_PATH"] = str(tmp_path / "scrub-failures.md")
+
         original_rules = scrub_rules.RULES[:]
         scrub_rules.RULES.insert(0, {
             "name": "bad_rule",
@@ -223,7 +229,6 @@ class TestMalformedRule:
         })
         importlib.reload(scrub_mod)
 
-        os.environ["SCRUB_FAILURES_PATH"] = str(tmp_path / "scrub-failures.md")
         try:
             text = "some normal text"
             out, counts = scrub_mod.scrub(text)
