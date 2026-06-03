@@ -51,8 +51,7 @@ run_fixture() {
        MOCK_RESPONSES="$FIXTURES/mock-responses.json" \
        python3 - <<'PY' 2>&1; then
 import json, os, pathlib, sys
-sys.path.insert(0, os.environ["PYTHONPATH"].split(":")[0])
-import curate
+import curate  # resolved via PYTHONPATH (exported above)
 
 name = os.environ["FIXTURE_NAME"]
 fixture_path = os.environ["FIXTURE_PATH"]

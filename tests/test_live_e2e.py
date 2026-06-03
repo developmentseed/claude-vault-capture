@@ -17,6 +17,8 @@ import pathlib
 
 import pytest
 
+from conftest import parse_frontmatter
+
 TRANSCRIPTS = pathlib.Path(__file__).parent.parent / "eval" / "fixtures" / "transcripts"
 
 pytestmark = [
@@ -26,17 +28,6 @@ pytestmark = [
         reason="live test — set CAPTURE_LIVE_TESTS=1 to run (spends Max quota)",
     ),
 ]
-
-
-def _parse_frontmatter(text: str) -> dict:
-    assert text.startswith("---\n")
-    block = text.split("---\n", 2)[1]
-    fm = {}
-    for line in block.splitlines():
-        if ":" in line:
-            k, _, v = line.partition(":")
-            fm[k.strip()] = v.strip()
-    return fm
 
 
 def test_subscription_pipeline_writes_both_artifacts(tmp_path, monkeypatch):
@@ -71,9 +62,9 @@ def test_subscription_pipeline_writes_both_artifacts(tmp_path, monkeypatch):
         "loics_vault", "Inbox", "auto", auto[0].name
     ).exists()
 
-    fm_a = _parse_frontmatter(auto[0].read_text())
+    fm_a = parse_frontmatter(auto[0].read_text())
     assert fm_a["source"] == "claude-code-curated"
-    fm_b = _parse_frontmatter(raw[0].read_text())
+    fm_b = parse_frontmatter(raw[0].read_text())
     assert fm_b["source"] == "claude-code-raw"
 
     entry = json.loads([l for l in log_path.read_text().splitlines() if l.strip()][-1])

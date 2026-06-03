@@ -14,7 +14,24 @@ _SESSION_FAILURES_PATH = str(
 os.environ.setdefault("SCRUB_FAILURES_PATH", _SESSION_FAILURES_PATH)
 
 import json
+from types import SimpleNamespace
 import pytest
+
+
+def parse_frontmatter(text: str) -> dict:
+    """Read a flat-scalar YAML frontmatter block into a dict.
+
+    Good enough for the scalar fields the artifacts emit (title, source, type,
+    session_id, model, …). Shared by the e2e and live test modules.
+    """
+    assert text.startswith("---\n")
+    block = text.split("---\n", 2)[1]
+    fm = {}
+    for line in block.splitlines():
+        if ":" in line:
+            k, _, v = line.partition(":")
+            fm[k.strip()] = v.strip()
+    return fm
 
 
 def pytest_configure(config):
@@ -104,14 +121,11 @@ def temp_vault(tmp_path):
     (vault_dir / "Inbox" / "auto").mkdir(parents=True)
     (vault_dir / "Inbox" / "raw").mkdir(parents=True)
 
-    class _Vault:
-        pass
-
-    v = _Vault()
-    v.vault_dir = vault_dir
-    v.log_path = tmp_path / "log.md"
-    v.index_path = tmp_path / "session-index.tsv"
-    return v
+    return SimpleNamespace(
+        vault_dir=vault_dir,
+        log_path=tmp_path / "log.md",
+        index_path=tmp_path / "session-index.tsv",
+    )
 
 
 @pytest.fixture

@@ -13,6 +13,8 @@ import re
 
 import pytest
 
+from conftest import parse_frontmatter
+
 TRANSCRIPTS = pathlib.Path(__file__).parent.parent / "eval" / "fixtures" / "transcripts"
 
 FILENAME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-[a-z0-9\-]+-[0-9a-f]{8}\.md$")
@@ -20,18 +22,6 @@ FILENAME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-[a-z0-9\-]+-[0-9a-f]{8}\.md$")
 
 def _transcript(name: str) -> pathlib.Path:
     return TRANSCRIPTS / f"{name}.jsonl"
-
-
-def _parse_frontmatter(text: str) -> dict:
-    """Tiny YAML-frontmatter reader — good enough for the flat scalar fields here."""
-    assert text.startswith("---\n")
-    block = text.split("---\n", 2)[1]
-    fm = {}
-    for line in block.splitlines():
-        if ":" in line:
-            k, _, v = line.partition(":")
-            fm[k.strip()] = v.strip()
-    return fm
 
 
 class TestFullPipeline:
@@ -49,13 +39,13 @@ class TestFullPipeline:
         assert FILENAME_RE.match(raw[0].name), raw[0].name
         assert auto[0].name.endswith(f"-{sid[:8]}.md")
 
-        fm_a = _parse_frontmatter(auto[0].read_text())
+        fm_a = parse_frontmatter(auto[0].read_text())
         assert fm_a["source"] == "claude-code-curated"
         assert fm_a["type"] == "decision"
         assert fm_a["session_id"] == sid
         assert fm_a["model"] == "claude-sonnet-4-6"
 
-        fm_b = _parse_frontmatter(raw[0].read_text())
+        fm_b = parse_frontmatter(raw[0].read_text())
         assert fm_b["source"] == "claude-code-raw"
         assert fm_b["type"] == "session-summary"
         assert fm_b["model"] == "claude-haiku-4-5-20251001"
@@ -94,7 +84,7 @@ class TestFullPipeline:
         assert FILENAME_RE.match(auto[0].name), auto[0].name
 
         text = auto[0].read_text()
-        fm = _parse_frontmatter(text)
+        fm = parse_frontmatter(text)
         title = fm["title"]
         for bad in ("|", "[[", "]]", "#", "`"):
             assert bad not in title, f"{bad!r} survived in title {title!r}"
