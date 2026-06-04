@@ -71,6 +71,14 @@ uv run pytest          # 155 tests, no network, no API key needed
 A 156th test makes real model calls and is skipped unless `CAPTURE_LIVE_TESTS=1`.
 The installer has its own smoke test: `bash eval/run-install-smoke.sh`.
 
+If you plan to contribute, install the git hooks so the same checks CI runs
+(ruff, shellcheck, zizmor, tests) run locally first:
+
+```bash
+uv run pre-commit install          # one-time
+uv run pre-commit run --all-files  # run them all now
+```
+
 ## Configuration
 
 | Env var | Default | Effect |

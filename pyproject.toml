@@ -24,7 +24,7 @@ subscription = ["claude-agent-sdk==0.2.89"]
 # runtime parses frontmatter with stdlib regex and never imports yaml. Use
 # `uv sync --no-dev` for a lean, hook-only install (only `anthropic`).
 [dependency-groups]
-dev = ["pytest==9.0.3", "pyyaml==6.0.3", "ruff==0.15.16"]
+dev = ["pytest==9.0.3", "pyyaml==6.0.3", "ruff==0.15.16", "pre-commit==4.6.0"]
 
 [project.urls]
 Repository = "https://github.com/lhoupert/claude-vault-capture"
