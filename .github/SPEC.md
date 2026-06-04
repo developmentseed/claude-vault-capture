@@ -62,7 +62,7 @@ Decision rules of thumb:
      All semantic checks (threshold, dedup) run inside `curate.py` — nothing that requires reading or parsing the transcript happens in the shell script.
 - `hooks/curate.py`, running detached, then:
   1. Loads the transcript and runs `hooks/scrub.py` on it (see §7 — Secret scrubbing). The **scrubbed** transcript is what gets sent to the models; the original is never copied or persisted by this tool.
-  2. Checks whether any user turn invokes an excluded slash command. The exclusion list comes from `CAPTURE_EXCLUDED_COMMANDS` (comma-separated env var, sourced from `capture.env`) and is **empty by default** — the public pipeline captures everything. An Inbox-triage extension (see §2.3) sets it to its own workflow commands (e.g. `/daily-devlog,/weekly-recap`) so capturing the triage sessions themselves stays non-circular. Match is line-anchored (pattern: `^\s*<cmd>(\s|$)`) so mentions of the command in prose are not false-positives. If found, records `skip_reason_a = skip_reason_b = "excluded_command"` in the log entry and exits 0.
+  2. Checks whether any user turn invokes an excluded slash command. The exclusion list comes from `CAPTURE_EXCLUDED_COMMANDS` (comma-separated env var, sourced from `capture.env`) and is **empty by default** — the public pipeline captures everything. An Inbox-triage extension (see §2.3) sets it to its own workflow commands so capturing the triage sessions themselves stays non-circular. Match is line-anchored (pattern: `^\s*<cmd>(\s|$)`) so mentions of the command in prose are not false-positives. If found, records `skip_reason_a = skip_reason_b = "excluded_command"` in the log entry and exits 0.
   3. Checks if the transcript is below the small-signal threshold (< 3 user turns OR < 1500 chars of user content). If so, records `skip_reason_a = skip_reason_b = "threshold"` in the log entry and exits 0. JSONL parsing runs here, in Python — not in the shell script.
   4. Estimates input token count as `len(scrubbed_transcript) // 4` (char-count proxy, not a real tokenizer). If this exceeds `CAPTURE_MAX_EST_TOKENS` (default: 50 000, configurable via env var), records `skip_reason_a = skip_reason_b = "token_limit"` and exits 0. At ~4 chars/token, 50 000 tokens ≈ 200 KB of transcript, corresponding to ~$0.15 input cost on Sonnet. Name prefix `EST_` signals this is a character-based estimate, not a real tokenizer count.
   5. Checks `eval/state/session-index.tsv` for the session_id. If found, exits 0 without writing — idempotent re-run protection that holds even after a capture has been promoted out of Inbox. If the index file is absent, writes unconditionally — accepting a potential duplicate on manual index deletion in exchange for eliminating a vault-wide file scan.
@@ -134,9 +134,8 @@ One JSON object per line, appended by `curate.py` after each run. JSON-lines is 
 Triaging captured artifacts out of `Inbox/` (same-day surfacing, weekly sweep,
 promotion with backlinks, miss-rate tracking, the 25% crash alarm, and the
 `metrics.md` rollup) is **out of scope for this repo.** It is implemented by a
-separate extension — e.g. [`claude-vault-capture-private`](https://github.com/lhoupert/claude-vault-capture-private) —
-that patches the user's `/daily-devlog` and `/weekly-recap` skills and consumes this
-project's **Inbox contract**:
+separate, user-owned extension that patches whatever workflow skills the user runs
+and consumes this project's **Inbox contract**:
 
 - **Reads (read-only):** `Inbox/{auto,raw}/*.md` (artifacts + frontmatter) and the
   gitignored runtime state `eval/state/{session-index.tsv,log.md,scrub-failures.md}`.
@@ -145,8 +144,8 @@ project's **Inbox contract**:
 - **Config:** sets `CAPTURE_EXCLUDED_COMMANDS` in `capture.env` so the pipeline does
   not capture the triage sessions themselves (kept non-circular).
 
-The public installer does **not** patch `/daily-devlog` or `/weekly-recap`. Only the
-`/vault-save` skill below is shipped here.
+The public installer does **not** patch any workflow skills. Only the `/vault-save`
+skill below is shipped here.
 
 #### `/vault-save` — on-demand document export
 
@@ -204,7 +203,7 @@ model: <model-id>
   skill-patches/
     vault-save.md                      # /vault-save skill — copied to ~/.claude/skills/vault-save/SKILL.md
     global-claude-md.vault-save-trigger.md  # auto-trigger instructions — injected into ~/.claude/CLAUDE.md
-                                       # (daily/weekly triage patches live in the external extension)
+                                       # (workflow-skill triage patches live in the external extension)
   eval/
     .gitignore                         # ignores state/ (runtime-generated)
     fixtures/                          # checked-in test input
@@ -239,7 +238,7 @@ model: <model-id>
   settings.json                        # SessionEnd hook registration (added by install.sh)
   CLAUDE.md                            # vault-save auto-trigger injected by install.sh (marker-bounded)
   skills/vault-save/SKILL.md           # created by install.sh (copied from skill-patches/vault-save.md)
-  skills/{daily-devlog,weekly-recap}/SKILL.md  # amended by the external triage extension, not this installer
+  skills/<workflow-skill>/SKILL.md     # amended by the external triage extension, not this installer
   hooks.log                            # errors and redaction logs land here
 
 ~/Obsidian/loics_vault/
@@ -259,7 +258,7 @@ model: <model-id>
 <!-- END claude-vault-capture: vault-save -->
 ```
 
-First install writes the file; subsequent installs replace only the content between the markers — edits the user made outside the markers are preserved. (The external triage extension uses the same marker-bounded mechanism to amend `/daily-devlog` and `/weekly-recap`.) `settings.json` hook registration is merged, not overwritten (installer parses, appends the entry if missing, writes back).
+First install writes the file; subsequent installs replace only the content between the markers — edits the user made outside the markers are preserved. (The external triage extension uses the same marker-bounded mechanism to amend the user's own workflow skills.) `settings.json` hook registration is merged, not overwritten (installer parses, appends the entry if missing, writes back).
 
 **Hook JSON shape and idempotency key.** The exact entry appended to `hooks.SessionEnd` in `~/.claude/settings.json`:
 
@@ -379,7 +378,7 @@ redactions: {env_var: 0, jwt: 0, private_key: 0, token_prefix: 0, basic_auth_url
   - `test_threshold.py` — four cases against the `< 3 user turns OR < 1500 chars` check: (a) low turns, normal chars → skip; (b) normal turns, low chars → skip; (c) both low → skip; (d) both above threshold → passes. Verifies the OR: either clause alone is sufficient. Parse the resulting log entry to confirm `skip_reason_a == skip_reason_b == "threshold"` and both `path_*` are `null`.
   - `test_guards.py` — *project derivation*: create a `tmp_path` with `git init`; assert `cwd=<repo>` → project equals repo basename; assert `cwd=<tmp no-git>` → project is `"home"`. Submodule behaviour is documented as a known limitation in §4 and deferred — no unit test for that case (setting up a submodule in tmpdir is heavy-weight and out of scope for v0; revisit if misclassification appears in week-1 review). *Token guard*: pass a string of length `CAPTURE_MAX_EST_TOKENS * 4 + 1` chars; assert the log entry contains `skip_reason_a = skip_reason_b = "token_limit"` and no file is written.
   - `test_log_schema.py` — for each `skip_reason` variant (`excluded_command`, `threshold`, `token_limit`, `model_returned_null`, `timeout`, `malformed_json`, `error:*`) and the happy path, assert the emitted JSON line has the documented shape from §2.2: correct keys present, correct `null` vs value placement in paired fields, invariant holds (exactly one of `path_*` / `skip_reason_*` is non-null per path), `schema_version` and `timestamp` fields present.
-  - `test_excluded_commands.py` — unit tests for `uses_excluded_command()`, driving the command list via the explicit parameter (the public default is empty): (a) a user turn starting with a configured command triggers exclusion; (b) prose mentioning the command mid-sentence does not trigger; (c) the **public default is empty**, so a `/daily-devlog` turn returns False; (d) custom command lists are honored. The e2e `test_excluded_command` (in `test_pipeline_e2e.py`) patches `EXCLUDED_COMMANDS` and asserts a session with an excluded command produces a log entry with `skip_reason_a = skip_reason_b = "excluded_command"` and no files written.
+  - `test_excluded_commands.py` — unit tests for `uses_excluded_command()`, driving the command list via the explicit parameter (the public default is empty): (a) a user turn starting with a configured command triggers exclusion; (b) prose mentioning the command mid-sentence does not trigger; (c) the **public default is empty**, so an excluded-command turn returns False under the default; (d) custom command lists are honored. The e2e `test_excluded_command` (in `test_pipeline_e2e.py`) patches `EXCLUDED_COMMANDS` and asserts a session with an excluded command produces a log entry with `skip_reason_a = skip_reason_b = "excluded_command"` and no files written.
   - `test_load_transcript.py` — unit tests for `_load_transcript()` and `_extract_text()`: (a) a JSONL line whose `content` is a plain string is returned as-is; (b) a line whose `content` is a list of `{"type": "text", "text": "…"}` blocks is flattened to a string; (c) mixed list types (text blocks and other block types) flatten without raising; (d) lines with `type` field (Claude Code JSONL format) are handled alongside lines with `role` field; (e) malformed JSON lines are silently skipped; (f) empty content is returned as empty string, not a list.
   - `test_failure_isolation.py` — exercises the §5 "per-path failure isolation" invariant as observable behaviour, not just schema shape. Two cases, both using `CAPTURE_MOCK_SDK=1` with a mock entry that raises: (a) Path A call raises `RuntimeError("boom")` → assert `Inbox/raw/…md` exists, `Inbox/auto/` is empty for this session, log row has `path_a: null, skip_reason_a: "error:RuntimeError", path_b: "Inbox/raw/…", skip_reason_b: null`; (b) symmetric case with Path B raising. Verifies that an exception in one ThreadPoolExecutor worker is caught at the future-result boundary and does not abort the other path's write or the log append.
 - **Scrubber fixture (`fixtures/with-secrets.txt`):** synthetic transcript containing representative fake secrets — API key formats, `-----BEGIN … PRIVATE KEY-----` block, `.env`-style lines **placed mid-transcript to exercise MULTILINE**, URL basic auth, JWTs, `Authorization: Bearer …` headers. `test_scrub.py` asserts every planted secret is redacted.
@@ -475,10 +474,10 @@ Detect via `git -C "$VAULT" rev-parse --is-inside-work-tree 2>/dev/null`. Do not
 
 ## 9. Eval checklist
 
-- [ ] **Week 0 — pre-implementation prerequisites.** Triage integration (anchors in `~/.claude/skills/{daily-devlog,weekly-recap}/SKILL.md`, plus `CAPTURE_EXCLUDED_COMMANDS`) is installed by the external triage extension, not this repo. Its installer skips gracefully if an anchor is absent — it never exits 1.
+- [ ] **Week 0 — pre-implementation prerequisites.** Triage integration (anchors in the user's own workflow `SKILL.md` files, plus `CAPTURE_EXCLUDED_COMMANDS`) is installed by the external triage extension, not this repo. Its installer skips gracefully if an anchor is absent — it never exits 1.
 - [ ] **Week 0 — install & first session.** Run `install.sh`; confirm `eval/state/` directory created, `start-date.txt` written, hook registered in `settings.json` as `{"matcher":"", "hooks":[{"type":"command","command":"…"}]}`, the `/vault-save` skill created at `~/.claude/skills/vault-save/SKILL.md`, `eval/.gitignore` contains `state/`. First session produces one file in each of `Inbox/auto/` (or null) and `Inbox/raw/`. Verify frontmatter, cost logging, and idempotency (re-run on same session = no duplicates). Verify `~/.claude/hooks.log` contains a `SESSION_END_RECEIVED` line for the session. Verify the first `log.md` entry has `schema_version: 1` and an ISO-8601 `timestamp`. **Run `pytest tests/` — all must pass, including: multi-line `.env` redaction in `test_scrub.py`, cross-line private-key block redaction, Bearer-token redaction, title sanitization, all `skip_reason` variants (including `excluded_command`) in `test_log_schema.py`, excluded-command line-anchor matching in `test_excluded_commands.py`, list-typed content flattening in `test_load_transcript.py`, and Path A/B exception isolation in `test_failure_isolation.py`.** Manually run the hook once with a transcript containing a fake API key; confirm neither Inbox file contains the token.
 - [ ] **Week 1 — mid-week review.** Review both Inboxes. Is Path A producing anything non-obvious vs Path B? Tune either prompt if obviously off. Review redaction counts in `eval/state/log.md` — if 0 across all sessions, either you're not pasting secrets (fine) or the rules are too narrow (fix). Check `eval/state/scrub-failures.md` — any entries mean a rule stopped running and secrets may have flowed through unredacted during that window.
-- [ ] **Week 2 — first full `/weekly-recap` sweep** (via the triage extension). Record kept/discard/miss counts and no-capture sessions. Verify the 25% alarm would fire if the ratio exceeds threshold (manually simulate by seeding `log.md` with enough error entries if needed).
+- [ ] **Week 2 — first full weekly sweep** (via the triage extension). Record kept/discard/miss counts and no-capture sessions. Verify the 25% alarm would fire if the ratio exceeds threshold (manually simulate by seeding `log.md` with enough error entries if needed).
 - [ ] **Week 4 — retrospective.** Tally metrics from the triage extension's `metrics.md`. Compare kept-rate and miss rate. Write decision note. Revisit the four open questions in §8 (cost ceiling, scrubber completeness, `log.md` extension, session-index rotation, backlink accumulation).
 
 ---

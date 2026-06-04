@@ -157,8 +157,8 @@ echo "Hook registered in settings.json"
 # ── 5. Placeholder substitution helper ────────────────────────────────────────
 # Substitute the __VAULT_DIR__ / __REPO_DIR__ placeholders that patch files carry
 # with this user's resolved absolute paths. Used by the vault-save skill below.
-# (Inbox-triage patches for /daily-devlog and /weekly-recap now live in a separate
-# extension — see the "Consuming captures" section of the README.)
+# (Inbox-triage skill patches now live in a separate external extension — see the
+# "Consuming captures" section of the README.)
 substitute_paths() {
     local content="$1"
     content="${content//__VAULT_DIR__/$VAULT}"

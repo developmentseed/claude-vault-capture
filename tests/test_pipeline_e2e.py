@@ -204,11 +204,11 @@ class TestEdgeCaseSkips:
         # EXCLUDED_COMMANDS is evaluated once at import (default empty), so setting
         # the env var here would not re-trigger it — patch the resolved constant.
         import curate
-        monkeypatch.setattr(curate, "EXCLUDED_COMMANDS", ["/daily-devlog"])
+        monkeypatch.setattr(curate, "EXCLUDED_COMMANDS", ["/my-journal"])
         tp = _write_jsonl(
             tmp_path / "excluded.jsonl",
             [
-                {"type": "user", "message": {"content": "/daily-devlog wrap up today"}},
+                {"type": "user", "message": {"content": "/my-journal wrap up today"}},
                 {"type": "user", "message": {"content": "more " + "x" * 800}},
                 {"type": "user", "message": {"content": "and " + "y" * 800}},
             ],
