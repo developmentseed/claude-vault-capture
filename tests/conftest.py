@@ -133,10 +133,10 @@ def run_main(monkeypatch, temp_vault):
     """Invoke curate.main() against the temp vault, returning the parsed log entries.
 
     main() takes no vault/log/index arguments — its run_capture call uses the
-    module-level defaults bound to the real ~/Obsidian path at def-time
-    (curate.py:513-515). We therefore wrap run_capture (rather than patch the
-    module constant) so the temp paths are injected: main() resolves run_capture
-    as a module global at call time, so the wrapper is picked up.
+    module-level defaults (VAULT_DIR resolves CAPTURE_VAULT_DIR, else ~/Obsidian).
+    We therefore wrap run_capture (rather than patch the module constant) so the
+    temp paths are injected: main() resolves run_capture as a module global at
+    call time, so the wrapper is picked up.
     """
     import curate
 

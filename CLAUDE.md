@@ -5,7 +5,7 @@ Automatically captures Claude Code sessions into an Obsidian vault on `SessionEn
 ## How to run tests
 
 ```bash
-uv sync --extra dev    # one-time: install pytest + pyyaml into .venv
+uv sync                # installs anthropic + the default dev group (pytest, pyyaml)
 uv run pytest          # 155 tests, no network (a 156th is opt-in live, skipped)
 CAPTURE_MOCK_SDK=1 uv run pytest -k failure_isolation   # specific test with mock SDK
 bash eval/run-install-smoke.sh   # installer smoke test (tmp dirs, no real writes)

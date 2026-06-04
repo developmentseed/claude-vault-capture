@@ -323,3 +323,10 @@ echo "Install complete."
 echo "  Hook:  $HOOK_CMD"
 echo "  Vault: $VAULT"
 echo "  State: $REPO/eval/state/"
+
+# Friendly reminder: the hook runs $REPO/.venv/bin/python3, created by `uv sync`.
+if [[ ! -x "$REPO/.venv/bin/python3" ]]; then
+    echo ""
+    echo "NOTE: $REPO/.venv/bin/python3 not found. Run 'uv sync' in $REPO so the"
+    echo "      backgrounded worker has an interpreter, or captures will silently no-op."
+fi

@@ -158,22 +158,28 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+subscription = [
+    { name = "claude-agent-sdk" },
+]
+
+[package.dev-dependencies]
 dev = [
     { name = "pytest" },
     { name = "pyyaml" },
-]
-subscription = [
-    { name = "claude-agent-sdk" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "anthropic", specifier = ">=0.40" },
     { name = "claude-agent-sdk", marker = "extra == 'subscription'", specifier = ">=0.1.0" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
-    { name = "pyyaml", marker = "extra == 'dev'", specifier = ">=6.0" },
 ]
-provides-extras = ["subscription", "dev"]
+provides-extras = ["subscription"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=8.0" },
+    { name = "pyyaml", specifier = ">=6.0" },
+]
 
 [[package]]
 name = "click"
