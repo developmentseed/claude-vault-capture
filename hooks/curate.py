@@ -26,8 +26,8 @@ from typing import Any
 CAPTURE_MAX_EST_TOKENS: int = int(os.environ.get("CAPTURE_MAX_EST_TOKENS", "50000"))
 
 # Slash commands whose sessions are NOT captured. Empty by default — the public
-# pipeline archives everything. Extensions (e.g. claude-vault-capture-private) set
-# CAPTURE_EXCLUDED_COMMANDS in capture.env to skip their own workflow sessions.
+# pipeline archives everything. An external extension sets CAPTURE_EXCLUDED_COMMANDS
+# in capture.env to skip capturing its own workflow sessions.
 EXCLUDED_COMMANDS: list[str] = [
     c.strip()
     for c in os.environ.get("CAPTURE_EXCLUDED_COMMANDS", "").split(",")

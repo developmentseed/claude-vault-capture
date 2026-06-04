@@ -81,7 +81,7 @@ The installer has its own smoke test: `bash eval/run-install-smoke.sh`.
 | `CLAUDE_CODE_OAUTH_TOKEN` | — | Subscription auth; falls back to `~/.claude_vault_oauth_token` |
 | `CAPTURE_MAX_EST_TOKENS` | `50000` | Token ceiling before skipping (~200 KB transcript) |
 | `CAPTURE_MOCK_SDK` | — | Set to `1` to skip API calls and use fixture responses |
-| `CAPTURE_EXCLUDED_COMMANDS` | — | Comma-separated slash commands whose sessions are not captured (e.g. `/daily-devlog,/weekly-recap`). Empty by default |
+| `CAPTURE_EXCLUDED_COMMANDS` | — | Comma-separated slash commands whose sessions are not captured (e.g. `/my-journal,/my-recap`). Empty by default |
 
 Extra variables (e.g. `CAPTURE_USE_SUBSCRIPTION=1`) can be added to `capture.env` —
 the hook sources the whole file before launching the worker.
@@ -109,11 +109,10 @@ equivalent in this mode — output length is governed by the runtime.
 ## Consuming captures: the Inbox contract
 
 This project is a capture *engine*. Triaging captured artifacts into structured
-vault folders (promoting, backlinking, weekly rollups) is left to **extensions** that
-build on a stable, documented interface. One such extension is
-[`claude-vault-capture-private`](https://github.com/lhoupert/claude-vault-capture-private),
-which patches the author's `/daily-devlog` and `/weekly-recap` skills with an Inbox
-sweep — kept separate because it's wired to one person's skills and vault layout.
+vault folders (promoting, backlinking, weekly rollups) is intentionally **out of
+scope** — it's left to separate extensions that build on the stable, documented
+interface below. Keeping triage in an external extension means it can be wired to
+your own skills and vault layout without coupling them to the capture engine.
 
 An extension consumes:
 

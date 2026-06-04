@@ -37,7 +37,7 @@ session-end-capture.sh  →  curate.py (backgrounded, nohup)
 **Skill integrations** (installed by `install.sh`). The remaining patch file carries `__VAULT_DIR__` / `__REPO_DIR__` placeholders that the installer substitutes with the user's resolved absolute paths:
 - `/vault-save` skill (`skill-patches/vault-save.md`) — on-demand export of a Claude-generated markdown document to `<vault>/claude-docs/`. No model call; Claude writes the file directly with structured frontmatter (`source: claude-code-export`). Always installed. Auto-triggered when the user asks to save/export a document to their vault (via `~/.claude/CLAUDE.md` injection from `skill-patches/global-claude-md.vault-save-trigger.md`).
 
-**Inbox triage is out-of-scope for this repo.** Promoting/backlinking captured artifacts is handled by *external extensions* (e.g. `claude-vault-capture-private`) that consume the documented Inbox contract: they read `Inbox/{auto,raw}/` and read-only `eval/state/{session-index.tsv,log.md,scrub-failures.md}`, and set `CAPTURE_EXCLUDED_COMMANDS` in `capture.env` to skip capturing their own workflow sessions. The public repo never patches `/daily-devlog` or `/weekly-recap`.
+**Inbox triage is out-of-scope for this repo.** Promoting/backlinking captured artifacts is handled by *external extensions* that consume the documented Inbox contract: they read `Inbox/{auto,raw}/` and read-only `eval/state/{session-index.tsv,log.md,scrub-failures.md}`, and set `CAPTURE_EXCLUDED_COMMANDS` in `capture.env` to skip capturing their own workflow sessions. The public installer never patches workflow skills — it only ships `/vault-save`.
 
 ## Invariants — never violate these
 
