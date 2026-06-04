@@ -29,4 +29,6 @@ jobs:
         env:
           # Lets zizmor run its online audits (impostor-commit, ref-confusion).
           GH_TOKEN: ${{ github.token }}
-        run: uvx zizmor .github/workflows
+        # Scan all of .github/ (workflows + dependabot.yml), matching the
+        # zizmor pre-commit hook so local and CI findings stay in sync.
+        run: uvx zizmor .github/
