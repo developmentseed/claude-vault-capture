@@ -33,7 +33,7 @@ if [[ -z "$SESSION_ID" || -z "$TRANSCRIPT_PATH" ]]; then
 fi
 
 # Guard: refuse to run unconfigured. install.sh writes CAPTURE_VAULT_DIR into
-# capture.env; without it we have no destination, so log once and exit cleanly.
+# capture.env; without it we have no destination, so log a marker and exit cleanly.
 if [[ -z "${CAPTURE_VAULT_DIR:-}" ]]; then
     mkdir -p "$(dirname "$HOOKS_LOG")"
     printf 'CAPTURE_NOT_CONFIGURED\t%s\tCAPTURE_VAULT_DIR unset — run install.sh\n' \

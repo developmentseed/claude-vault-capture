@@ -118,11 +118,20 @@ assert "eval/.gitignore contains state/" "grep -q 'state/' '$ROOT/eval/.gitignor
 # ── Second install (idempotency) ──────────────────────────────────────────────
 echo ""
 echo "=== Second install (idempotency) ==="
+# Simulate a user who added an extra var to capture.env (per the README); the
+# re-run must preserve it while still refreshing CAPTURE_VAULT_DIR.
+echo 'CAPTURE_USE_SUBSCRIPTION=1' >> "$FAKE_CONFIG"
 FAKE_HOME="$FAKE_HOME" FAKE_VAULT="$FAKE_VAULT" FAKE_SETTINGS="$FAKE_SETTINGS" \
     FAKE_DAILY_SKILL="$FAKE_DAILY_SKILL" FAKE_WEEKLY_SKILL="$FAKE_WEEKLY_SKILL" \
     FAKE_START_DATE_PATH="$FAKE_START_DATE" FAKE_CONFIG="$FAKE_CONFIG" \
     FAKE_GLOBAL_CLAUDE_MD="$FAKE_GLOBAL_CLAUDE_MD" \
     bash "$INSTALL" --smoke-test-mode 2>&1 | sed 's/^/  /'
+
+assert "re-install preserves user-added capture.env vars" \
+    "grep -qx 'CAPTURE_USE_SUBSCRIPTION=1' '$FAKE_CONFIG'"
+
+assert "re-install keeps exactly one CAPTURE_VAULT_DIR line" \
+    "[ \$(grep -c '^CAPTURE_VAULT_DIR=' '$FAKE_CONFIG') -eq 1 ]"
 
 assert "settings.json has exactly one hook entry after re-run" "python3 -c \"
 import json
