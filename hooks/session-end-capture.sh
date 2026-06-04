@@ -3,8 +3,21 @@
 set -euo pipefail
 
 HOOKS_LOG="$HOME/.claude/hooks.log"
-CURATE="$HOME/DevDS/claude-vault-capture/hooks/curate.py"
-VENV_PYTHON="$HOME/DevDS/claude-vault-capture/.venv/bin/python3"
+
+# Resolve the repo from this script's own location so the checkout can live anywhere.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO="$(dirname "$SCRIPT_DIR")"
+CURATE="$REPO/hooks/curate.py"
+VENV_PYTHON="$REPO/.venv/bin/python3"
+
+# Load per-user config (CAPTURE_VAULT_DIR and any optional flags) written by
+# install.sh. Gitignored, so each user's vault path stays out of version control.
+if [[ -f "$REPO/capture.env" ]]; then
+    set -a
+    # shellcheck disable=SC1091
+    source "$REPO/capture.env"
+    set +a
+fi
 
 # Read hook JSON from stdin
 HOOK_JSON=$(cat)
@@ -16,6 +29,15 @@ CWD=$(echo "$HOOK_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); p
 
 # Guard: if we couldn't parse the fields, bail silently
 if [[ -z "$SESSION_ID" || -z "$TRANSCRIPT_PATH" ]]; then
+    exit 0
+fi
+
+# Guard: refuse to run unconfigured. install.sh writes CAPTURE_VAULT_DIR into
+# capture.env; without it we have no destination, so log a marker and exit cleanly.
+if [[ -z "${CAPTURE_VAULT_DIR:-}" ]]; then
+    mkdir -p "$(dirname "$HOOKS_LOG")"
+    printf 'CAPTURE_NOT_CONFIGURED\t%s\tCAPTURE_VAULT_DIR unset — run install.sh\n' \
+        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$HOOKS_LOG"
     exit 0
 fi
 

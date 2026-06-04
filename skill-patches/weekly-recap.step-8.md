@@ -3,7 +3,7 @@
 The recap is written. Now surface any inbox items not yet triaged during the week's daily devlogs.
 
 **Step 8a — Catchup triage:**
-1. List every file in `~/Obsidian/loics_vault/Inbox/auto/` and `~/Obsidian/loics_vault/Inbox/raw/` whose frontmatter `created` date falls within the recap's date range. These are items skipped or missed during daily triage.
+1. List every file in `__VAULT_DIR__/Inbox/auto/` and `__VAULT_DIR__/Inbox/raw/` whose frontmatter `created` date falls within the recap's date range. These are items skipped or missed during daily triage.
 2. If none remain, skip to step 8b.
 3. If items remain, tell the user: "The recap is done. N inbox items from this week were not triaged yet."
    Offer a triage mode — default to high-value only and recommend it:
@@ -21,7 +21,7 @@ The recap is written. Now surface any inbox items not yet triaged during the wee
    - In the artifact at its **new** location, append to `## Referenced in` (create if absent): `- [[<recap-stem>|week of <start-date> recap]]`. If a devlog backlink already exists, add the recap backlink as a second bullet — do not replace.
    - Link-write failures log and continue; do not undo the file move.
 6. **Miss-rate check** (when promoting a raw file):
-   - Read `~/DevDS/claude-vault-capture/eval/state/session-index.tsv`.
+   - Read `__REPO_DIR__/eval/state/session-index.tsv`.
      Format: `<session_id>\t<path_a_or_null>\t<path_b_or_null>\t<date>` — one line per captured session.
    - Find the line whose first column matches this file's `session_id` frontmatter field.
    - If `path_a` is anything other than `null` — no miss.
