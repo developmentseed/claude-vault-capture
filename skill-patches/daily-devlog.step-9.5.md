@@ -3,11 +3,11 @@
 **Target date.** Throughout this step, use the *target date* parsed in step 1 — the date this devlog is being written for (today by default, or the backfill date when an argument was given). Do **not** assume the calendar "today": use the target date for every date comparison and every stem below.
 
 Before scanning for artifacts, check for scrub failures:
-- Read `~/DevDS/claude-vault-capture/eval/state/scrub-failures.md` for lines dated on the target date.
+- Read `__REPO_DIR__/eval/state/scrub-failures.md` for lines dated on the target date.
 - If any exist, display prominently: `⚠ N scrub rule(s) failed on <target-date> — review eval/state/scrub-failures.md`
 - A failing scrub rule means secrets may have flowed through unredacted. Do not promote artifacts from a session that overlaps with a scrub failure window without first reviewing the raw content.
 
-Scan `~/Obsidian/loics_vault/Inbox/auto/` and `~/Obsidian/loics_vault/Inbox/raw/` for files whose frontmatter `created` date matches the target date. If none are found, skip this step silently.
+Scan `__VAULT_DIR__/Inbox/auto/` and `__VAULT_DIR__/Inbox/raw/` for files whose frontmatter `created` date matches the target date. If none are found, skip this step silently.
 
 If files are found, display:
 ```
@@ -33,7 +33,7 @@ With a single item you may skip the mode offer and run the per-item prompt direc
 3. If either write fails, log the failure and continue — partial links are acceptable; blocked promotions are not.
 
 **Miss-rate check** (when promoting a raw file — track count in memory, written at end):
-- Read `~/DevDS/claude-vault-capture/eval/state/session-index.tsv`.
+- Read `__REPO_DIR__/eval/state/session-index.tsv`.
   Format: `<session_id>\t<path_a_or_null>\t<path_b_or_null>\t<date>` — one line per captured session.
 - Find the line whose first column matches this file's `session_id` frontmatter field.
 - If `path_a` is anything other than `null` — curated sibling was captured. No miss.

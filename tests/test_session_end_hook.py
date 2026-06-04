@@ -12,6 +12,7 @@ so no ambient real key is ever persisted. temp HOME is cleaned up by tmp_path.
 import json
 import os
 import pathlib
+import shutil
 import subprocess
 import time
 
@@ -20,12 +21,23 @@ import pytest
 HOOK = pathlib.Path(__file__).parent.parent / "hooks" / "session-end-capture.sh"
 
 
-def _build_home(home: pathlib.Path) -> pathlib.Path:
-    """Lay out the temp HOME the hook expects; return the invocation-record path."""
+def _build_home(home: pathlib.Path, *, configure_vault: bool = True) -> pathlib.Path:
+    """Lay out a fake repo + temp HOME for the hook; return the invocation-record path.
+
+    The hook self-locates via ${BASH_SOURCE[0]}, so the test runs a *copy* of the
+    real hook placed inside the temp repo. That makes CURATE / VENV_PYTHON resolve
+    to the stub curate.py and python3 shim laid down here. A capture.env supplying
+    CAPTURE_VAULT_DIR is written by default so the hook's config guard passes;
+    configure_vault=False exercises the unconfigured path.
+    """
     repo = home / "DevDS" / "claude-vault-capture"
     (repo / "hooks").mkdir(parents=True)
     (repo / ".venv" / "bin").mkdir(parents=True)
     (repo / "hooks" / "curate.py").write_text("# stub — never executed by the shim\n")
+    shutil.copy(HOOK, repo / "hooks" / "session-end-capture.sh")
+
+    if configure_vault:
+        (repo / "capture.env").write_text(f'CAPTURE_VAULT_DIR="{home / "vault"}"\n')
 
     invocation = home / "curate-invocation.txt"
     shim = repo / ".venv" / "bin" / "python3"
@@ -52,9 +64,10 @@ def _run_hook(home: pathlib.Path, stdin: str, extra_env: dict | None = None):
     }
     if extra_env:
         env.update(extra_env)
+    hook_copy = home / "DevDS" / "claude-vault-capture" / "hooks" / "session-end-capture.sh"
     start = time.monotonic()
     proc = subprocess.run(
-        ["bash", str(HOOK)],
+        ["bash", str(hook_copy)],
         input=stdin,
         capture_output=True,
         text=True,
@@ -130,6 +143,22 @@ class TestGuards:
 
         assert proc.returncode == 0
         assert not _wait_for(invocation, timeout=0.5)
+
+    def test_unconfigured_vault_no_background(self, tmp_path):
+        """No capture.env / CAPTURE_VAULT_DIR → log a marker, never background curate."""
+        home = tmp_path / "home"
+        home.mkdir()
+        invocation = _build_home(home, configure_vault=False)
+
+        payload = json.dumps(
+            {"session_id": "s", "transcript_path": "/tmp/t.jsonl", "cwd": "/tmp"}
+        )
+        proc, _ = _run_hook(home, payload)
+
+        assert proc.returncode == 0
+        assert not _wait_for(invocation, timeout=0.5), "curate must not run unconfigured"
+        hooks_log = (home / ".claude" / "hooks.log").read_text()
+        assert "CAPTURE_NOT_CONFIGURED" in hooks_log
 
 
 class TestCredentialFallback:

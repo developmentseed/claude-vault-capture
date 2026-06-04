@@ -1,0 +1,28 @@
+[project]
+name = "claude-vault-capture"
+version = "0.1.0"
+description = "Automatic Claude Code session capture into an Obsidian vault on SessionEnd."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "Loïc Houpert" }]
+keywords = ["claude-code", "obsidian", "hooks", "knowledge-capture"]
+
+# Runtime dependency for the default (metered API-key) mode.
+dependencies = [
+    "anthropic>=0.40",
+]
+
+[project.optional-dependencies]
+# Route model calls through a Claude Max subscription instead of a metered key.
+# See README → "Using your Claude Max subscription instead of an API key".
+subscription = ["claude-agent-sdk>=0.1.0"]
+# Test suite — no network, no API key required. PyYAML is test-only (runtime
+# deliberately parses frontmatter with stdlib regex, never imports yaml).
+dev = ["pytest>=8.0", "pyyaml>=6.0"]
+
+[project.urls]
+Repository = "https://github.com/lhoupert/claude-vault-capture"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -22,7 +22,8 @@ def _failures_path() -> pathlib.Path:
     env = os.environ.get("SCRUB_FAILURES_PATH")
     if env:
         return pathlib.Path(env)
-    return pathlib.Path.home() / "DevDS" / "claude-vault-capture" / "eval" / "state" / "scrub-failures.md"
+    # Derived from this file's location so the checkout can live anywhere.
+    return pathlib.Path(__file__).resolve().parent.parent / "eval" / "state" / "scrub-failures.md"
 
 
 def _log_failure(rule_name: str, exc: Exception) -> None:

@@ -27,9 +27,18 @@ CAPTURE_MAX_EST_TOKENS: int = int(os.environ.get("CAPTURE_MAX_EST_TOKENS", "5000
 
 EXCLUDED_COMMANDS: list[str] = ["/daily-devlog", "/weekly-recap"]
 
-VAULT_DIR = pathlib.Path.home() / "Obsidian" / "loics_vault"
-LOG_PATH = pathlib.Path.home() / "DevDS" / "claude-vault-capture" / "eval" / "state" / "log.md"
-INDEX_PATH = pathlib.Path.home() / "DevDS" / "claude-vault-capture" / "eval" / "state" / "session-index.tsv"
+# Repo root is derived from this file's location, so the checkout can live anywhere.
+REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
+STATE_DIR = REPO_ROOT / "eval" / "state"
+
+# The vault location is user-specific — there is no universal default. It is set via
+# the CAPTURE_VAULT_DIR env var, which install.sh writes into capture.env and the hook
+# sources before launching this script. The fallback below only applies when curate.py
+# is run by hand without config; session-end-capture.sh refuses to launch when the
+# vault is unconfigured, so the real hook path always provides an explicit value.
+VAULT_DIR = pathlib.Path(os.environ.get("CAPTURE_VAULT_DIR") or (pathlib.Path.home() / "Obsidian"))
+LOG_PATH = STATE_DIR / "log.md"
+INDEX_PATH = STATE_DIR / "session-index.tsv"
 HOOKS_LOG = pathlib.Path.home() / ".claude" / "hooks.log"
 
 MOCK_RESPONSES_PATH = (

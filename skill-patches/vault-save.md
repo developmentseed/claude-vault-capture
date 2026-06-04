@@ -1,7 +1,7 @@
 <!-- BEGIN claude-vault-capture: vault-save -->
 # /vault-save — Export a document to the Obsidian vault
 
-Save a Claude-generated markdown document to `~/Obsidian/loics_vault/claude-docs/` with structured frontmatter. Works mid-session without waiting for SessionEnd capture.
+Save a Claude-generated markdown document to `__VAULT_DIR__/claude-docs/` with structured frontmatter. Works mid-session without waiting for SessionEnd capture.
 
 ---
 
@@ -67,11 +67,11 @@ description: |
 1. Take the sanitized title from Step 2.
 2. NFKD-normalize, lowercase, replace every character outside `[a-z0-9]` with `-`, collapse consecutive hyphens, strip leading/trailing hyphens. Truncate to 60 characters.
 3. Assemble: `YYYY-MM-DD-<slug>.md`
-4. Check whether `~/Obsidian/loics_vault/claude-docs/<filename>` already exists. If it does, append `-2`, `-3`, etc. until the path is free.
+4. Check whether `__VAULT_DIR__/claude-docs/<filename>` already exists. If it does, append `-2`, `-3`, etc. until the path is free.
 
 ## Step 4 — Write the file
 
-Write the complete file to `~/Obsidian/loics_vault/claude-docs/<filename>` with this exact structure:
+Write the complete file to `__VAULT_DIR__/claude-docs/<filename>` with this exact structure:
 
 ```
 ---
