@@ -1,4 +1,8 @@
-"""Unit tests — each skip_reason variant produces a schema-valid JSON line."""
+"""Unit tests — each skip_reason variant produces a schema-valid JSON line.
+
+Single-path schema (v2): Path B was retired 2026-06-04, so every entry has
+exactly one path_a/skip_reason_a pair.
+"""
 
 import sys
 import pathlib
@@ -10,54 +14,24 @@ from curate import build_log_entry, LOG_REQUIRED_KEYS
 
 
 def _valid(entry: dict) -> bool:
-    """Schema invariant: exactly one of path_*/skip_reason_* is non-null per path."""
-    for path in ("a", "b"):
-        p = entry.get(f"path_{path}")
-        s = entry.get(f"skip_reason_{path}")
-        # exactly one must be non-null
-        if not ((p is None) ^ (s is None)):
-            return False
-    return True
+    """Schema invariant: exactly one of path_a/skip_reason_a is non-null."""
+    p = entry.get("path_a")
+    s = entry.get("skip_reason_a")
+    return (p is None) ^ (s is None)
 
 
 class TestLogSchema:
-    def _base(self, **overrides):
-        base = dict(
-            schema_version=1,
-            timestamp="2026-04-23T14:32:11Z",
-            date="2026-04-23",
-            session_id="abc-123",
-            path_a=None,
-            path_b=None,
-            skip_reason_a=None,
-            skip_reason_b=None,
-            tokens_in_a=None,
-            tokens_out_a=None,
-            tokens_in_b=None,
-            tokens_out_b=None,
-            cost_usd_a=None,
-            cost_usd_b=None,
-            redactions={"env_var": 0, "jwt": 0},
-        )
-        base.update(overrides)
-        return base
-
     def test_happy_path(self):
         e = build_log_entry(
             session_id="s1",
             path_a="Inbox/auto/f.md",
             skip_reason_a=None,
-            path_b="Inbox/raw/f.md",
-            skip_reason_b=None,
             tokens_in_a=100,
             tokens_out_a=50,
-            tokens_in_b=100,
-            tokens_out_b=30,
             cost_usd_a=0.01,
-            cost_usd_b=0.001,
             redactions={"env_var": 0},
         )
-        assert e["schema_version"] == 1
+        assert e["schema_version"] == 2
         assert "timestamp" in e
         assert "date" in e
         assert _valid(e)
@@ -68,35 +42,23 @@ class TestLogSchema:
             session_id="s1",
             path_a=None,
             skip_reason_a="threshold",
-            path_b=None,
-            skip_reason_b="threshold",
             tokens_in_a=None,
             tokens_out_a=None,
-            tokens_in_b=None,
-            tokens_out_b=None,
             cost_usd_a=None,
-            cost_usd_b=None,
             redactions={},
         )
         assert _valid(e)
         assert e["skip_reason_a"] == "threshold"
-        assert e["skip_reason_b"] == "threshold"
         assert e["path_a"] is None
-        assert e["path_b"] is None
 
     def test_token_limit_skip(self):
         e = build_log_entry(
             session_id="s1",
             path_a=None,
             skip_reason_a="token_limit",
-            path_b=None,
-            skip_reason_b="token_limit",
             tokens_in_a=None,
             tokens_out_a=None,
-            tokens_in_b=None,
-            tokens_out_b=None,
             cost_usd_a=None,
-            cost_usd_b=None,
             redactions={},
         )
         assert _valid(e)
@@ -107,33 +69,24 @@ class TestLogSchema:
             session_id="s1",
             path_a=None,
             skip_reason_a="model_returned_null",
-            path_b="Inbox/raw/f.md",
-            skip_reason_b=None,
             tokens_in_a=200,
             tokens_out_a=5,
-            tokens_in_b=200,
-            tokens_out_b=50,
             cost_usd_a=0.005,
-            cost_usd_b=0.001,
             redactions={},
         )
         assert _valid(e)
         assert e["skip_reason_a"] == "model_returned_null"
-        assert e["path_b"] == "Inbox/raw/f.md"
+        # token usage is preserved even on a null
+        assert e["tokens_in_a"] == 200
 
     def test_timeout_skip(self):
         e = build_log_entry(
             session_id="s1",
             path_a=None,
             skip_reason_a="timeout",
-            path_b="Inbox/raw/f.md",
-            skip_reason_b=None,
             tokens_in_a=None,
             tokens_out_a=None,
-            tokens_in_b=200,
-            tokens_out_b=50,
             cost_usd_a=None,
-            cost_usd_b=0.001,
             redactions={},
         )
         assert _valid(e)
@@ -142,34 +95,24 @@ class TestLogSchema:
     def test_malformed_json_skip(self):
         e = build_log_entry(
             session_id="s1",
-            path_a="Inbox/auto/f.md",
-            skip_reason_a=None,
-            path_b=None,
-            skip_reason_b="malformed_json",
+            path_a=None,
+            skip_reason_a="malformed_json",
             tokens_in_a=200,
-            tokens_out_a=100,
-            tokens_in_b=200,
-            tokens_out_b=0,
-            cost_usd_a=0.01,
-            cost_usd_b=0.0002,
+            tokens_out_a=0,
+            cost_usd_a=0.0002,
             redactions={},
         )
         assert _valid(e)
-        assert e["skip_reason_b"] == "malformed_json"
+        assert e["skip_reason_a"] == "malformed_json"
 
     def test_error_skip(self):
         e = build_log_entry(
             session_id="s1",
             path_a=None,
             skip_reason_a="error:RuntimeError",
-            path_b="Inbox/raw/f.md",
-            skip_reason_b=None,
             tokens_in_a=None,
             tokens_out_a=None,
-            tokens_in_b=200,
-            tokens_out_b=50,
             cost_usd_a=None,
-            cost_usd_b=0.001,
             redactions={},
         )
         assert _valid(e)
@@ -180,34 +123,23 @@ class TestLogSchema:
             session_id="s1",
             path_a=None,
             skip_reason_a="duplicate",
-            path_b=None,
-            skip_reason_b="duplicate",
             tokens_in_a=None,
             tokens_out_a=None,
-            tokens_in_b=None,
-            tokens_out_b=None,
             cost_usd_a=None,
-            cost_usd_b=None,
             redactions={},
         )
         assert _valid(e)
         assert e["skip_reason_a"] == "duplicate"
-        assert e["skip_reason_b"] == "duplicate"
 
     def test_invariant_never_both_null(self):
-        """Both path and skip_reason cannot be null simultaneously per path."""
+        """path_a and skip_reason_a cannot be null simultaneously."""
         e = build_log_entry(
             session_id="s1",
             path_a=None,
             skip_reason_a=None,  # INVALID — both null
-            path_b="Inbox/raw/f.md",
-            skip_reason_b=None,
             tokens_in_a=None,
             tokens_out_a=None,
-            tokens_in_b=100,
-            tokens_out_b=50,
             cost_usd_a=None,
-            cost_usd_b=0.001,
             redactions={},
         )
         assert not _valid(e)
@@ -217,14 +149,9 @@ class TestLogSchema:
             session_id="s1",
             path_a="Inbox/auto/f.md",
             skip_reason_a=None,
-            path_b="Inbox/raw/f.md",
-            skip_reason_b=None,
             tokens_in_a=100,
             tokens_out_a=50,
-            tokens_in_b=100,
-            tokens_out_b=30,
             cost_usd_a=0.01,
-            cost_usd_b=0.001,
             redactions={"env_var": 0},
         )
         line = json.dumps(e)

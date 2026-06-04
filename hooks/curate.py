@@ -3,8 +3,10 @@
 
 Usage: curate.py <transcript_path> <session_id> <cwd>
 
-Runs both Path A (curated, sonnet) and Path B (raw baseline, haiku) in parallel,
-writes artifacts to Obsidian Inbox dirs, and appends to the eval state log.
+Runs the curation path (Path A, sonnet) — extracts a durable artifact or null,
+retrying once on a non-deterministic null — writes it to the Obsidian Inbox, and
+appends to the eval state log. (Path B, the Haiku raw baseline, was retired
+2026-06-04; see eval/experiments/FINDINGS.md.)
 
 All errors go to stderr / ~/.claude/hooks.log — never to the user's terminal.
 """
@@ -19,7 +21,6 @@ import threading
 import datetime
 import unicodedata
 import subprocess
-from concurrent.futures import ThreadPoolExecutor, Future
 
 # ── constants ──────────────────────────────────────────────────────────────────
 
@@ -55,9 +56,7 @@ MOCK_RESPONSES_PATH = (
 )
 
 MODEL_A = "claude-sonnet-4-6"
-MODEL_B = "claude-haiku-4-5-20251001"
 MAX_TOKENS_A = 2000
-MAX_TOKENS_B = 800
 TIMEOUT_SECONDS = 30
 # Path A nulls non-deterministically: the same transcript can return `null` on
 # one call and a real artifact on the next. Retry once on null to recover those
@@ -71,15 +70,10 @@ LOG_REQUIRED_KEYS = [
     "date",
     "session_id",
     "path_a",
-    "path_b",
     "skip_reason_a",
-    "skip_reason_b",
     "tokens_in_a",
     "tokens_out_a",
-    "tokens_in_b",
-    "tokens_out_b",
     "cost_usd_a",
-    "cost_usd_b",
     "redactions",
 ]
 
@@ -280,32 +274,24 @@ def build_log_entry(
     session_id: str,
     path_a: str | None,
     skip_reason_a: str | None,
-    path_b: str | None,
-    skip_reason_b: str | None,
     tokens_in_a: int | None,
     tokens_out_a: int | None,
-    tokens_in_b: int | None,
-    tokens_out_b: int | None,
     cost_usd_a: float | None,
-    cost_usd_b: float | None,
     redactions: dict[str, int],
 ) -> dict:
     now = datetime.datetime.now(datetime.timezone.utc)
     return {
-        "schema_version": 1,
+        # schema_version 2: single-path capture (Path B retired 2026-06-04). v1
+        # rows carry path_b/*_b fields; readers must tolerate their absence in v2.
+        "schema_version": 2,
         "timestamp": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "date": now.strftime("%Y-%m-%d"),
         "session_id": session_id,
         "path_a": path_a,
-        "path_b": path_b,
         "skip_reason_a": skip_reason_a,
-        "skip_reason_b": skip_reason_b,
         "tokens_in_a": tokens_in_a,
         "tokens_out_a": tokens_out_a,
-        "tokens_in_b": tokens_in_b,
-        "tokens_out_b": tokens_out_b,
         "cost_usd_a": cost_usd_a,
-        "cost_usd_b": cost_usd_b,
         "redactions": redactions,
     }
 
@@ -328,7 +314,6 @@ def append_log(entry: dict, *, log_path: pathlib.Path = LOG_PATH) -> None:
 def _append_index(
     session_id: str,
     path_a: str | None,
-    path_b: str | None,
     date_str: str,
     *,
     index_path: pathlib.Path = INDEX_PATH,
@@ -339,10 +324,9 @@ def _append_index(
         with open(index_path, "a", encoding="utf-8") as fh:
             fcntl.flock(fh, fcntl.LOCK_EX)
             if fh.tell() == 0:
-                fh.write("# schema_version: 1\n")
-            fh.write(
-                f"{session_id}\t{path_a or 'null'}\t{path_b or 'null'}\t{date_str}\n"
-            )
+                # schema_version 2: path_b column dropped with Path B retirement.
+                fh.write("# schema_version: 2\n")
+            fh.write(f"{session_id}\t{path_a or 'null'}\t{date_str}\n")
             fh.flush()
             fcntl.flock(fh, fcntl.LOCK_UN)
 
@@ -513,42 +497,9 @@ def _call_path_a(scrubbed_text: str, prompts_dir: pathlib.Path) -> dict | None:
     return data
 
 
-def _call_path_b(scrubbed_text: str, prompts_dir: pathlib.Path) -> dict:
-    """Call claude-haiku with raw baseline prompt. Always returns dict."""
-    if os.environ.get("CAPTURE_MOCK_SDK") == "1":
-        raise RuntimeError(
-            "CAPTURE_MOCK_SDK=1 but no mock injected — call monkeypatched version"
-        )
-
-    system_prompt = (prompts_dir / "raw-baseline-prompt.md").read_text()
-    text, tokens_in, tokens_out = _invoke_model(
-        MODEL_B, MAX_TOKENS_B, system_prompt, scrubbed_text
-    )
-    usage = {
-        "tokens_in": tokens_in,
-        "tokens_out": tokens_out,
-        # Under subscription this is an estimated API-equivalent cost, not billed.
-        "cost_usd": _estimate_cost_b(tokens_in, tokens_out),
-    }
-    raw = _strip_fences(text)
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        _log_error(f"PATH_B malformed_json: {raw[:200]}")
-        exc.usage = usage  # type: ignore[attr-defined]
-        raise
-    data.update(usage)
-    return data
-
-
 def _estimate_cost_a(tokens_in: int, tokens_out: int) -> float:
     # claude-sonnet-4-6: $3/M input, $15/M output
     return (tokens_in * 3 + tokens_out * 15) / 1_000_000
-
-
-def _estimate_cost_b(tokens_in: int, tokens_out: int) -> float:
-    # claude-haiku-4-5: $0.25/M input, $1.25/M output
-    return (tokens_in * 0.25 + tokens_out * 1.25) / 1_000_000
 
 
 # ── file writing ───────────────────────────────────────────────────────────────
@@ -633,14 +584,9 @@ def run_capture(
             session_id=session_id,
             path_a=None,
             skip_reason_a="excluded_command",
-            path_b=None,
-            skip_reason_b="excluded_command",
             tokens_in_a=None,
             tokens_out_a=None,
-            tokens_in_b=None,
-            tokens_out_b=None,
             cost_usd_a=None,
-            cost_usd_b=None,
             redactions=redactions,
         )
         append_log(entry, log_path=log_path)
@@ -652,14 +598,9 @@ def run_capture(
             session_id=session_id,
             path_a=None,
             skip_reason_a="threshold",
-            path_b=None,
-            skip_reason_b="threshold",
             tokens_in_a=None,
             tokens_out_a=None,
-            tokens_in_b=None,
-            tokens_out_b=None,
             cost_usd_a=None,
-            cost_usd_b=None,
             redactions=redactions,
         )
         append_log(entry, log_path=log_path)
@@ -671,14 +612,9 @@ def run_capture(
             session_id=session_id,
             path_a=None,
             skip_reason_a="token_limit",
-            path_b=None,
-            skip_reason_b="token_limit",
             tokens_in_a=None,
             tokens_out_a=None,
-            tokens_in_b=None,
-            tokens_out_b=None,
             cost_usd_a=None,
-            cost_usd_b=None,
             redactions=redactions,
         )
         append_log(entry, log_path=log_path)
@@ -690,14 +626,9 @@ def run_capture(
             session_id=session_id,
             path_a=None,
             skip_reason_a="duplicate",
-            path_b=None,
-            skip_reason_b="duplicate",
             tokens_in_a=None,
             tokens_out_a=None,
-            tokens_in_b=None,
-            tokens_out_b=None,
             cost_usd_a=None,
-            cost_usd_b=None,
             redactions=redactions,
         )
         append_log(entry, log_path=log_path)
@@ -706,30 +637,14 @@ def run_capture(
     # ── 6. project derivation ─────────────────────────────────────────────────
     project = derive_project(cwd)
 
-    # ── 7. parallel API calls (or mock) ──────────────────────────────────────
+    # ── 7. curation API call (or mock) ────────────────────────────────────────
     result_a: dict | None = None
-    result_b: dict | None = None
     skip_reason_a: str | None = None
-    skip_reason_b: str | None = None
     tokens_in_a = tokens_out_a = None
-    tokens_in_b = tokens_out_b = None
-    cost_usd_a = cost_usd_b = None
+    cost_usd_a = None
 
-    def call_a():
-        return _call_path_a(scrubbed_text, prompts_dir)
-
-    def call_b():
-        return _call_path_b(scrubbed_text, prompts_dir)
-
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        future_a: Future = executor.submit(call_a)
-        future_b: Future = executor.submit(call_b)
-    # executor.shutdown(wait=True) was called above — both futures are complete here;
-    # .result() retrieves the stored value or re-raises the stored exception.
-
-    # Collect path A result
     try:
-        result_a = future_a.result()
+        result_a = _call_path_a(scrubbed_text, prompts_dir)
         if result_a is not None:
             tokens_in_a = result_a.get("tokens_in")
             tokens_out_a = result_a.get("tokens_out")
@@ -749,36 +664,12 @@ def run_capture(
     except Exception as exc:
         skip_reason_a = f"error:{type(exc).__name__}"
 
-    # Collect path B result
-    try:
-        result_b = future_b.result()
-        tokens_in_b = result_b.get("tokens_in")
-        tokens_out_b = result_b.get("tokens_out")
-        cost_usd_b = result_b.get("cost_usd")
-    except json.JSONDecodeError as exc:
-        skip_reason_b = "malformed_json"
-        usage = getattr(exc, "usage", None)
-        if usage:
-            tokens_in_b = usage.get("tokens_in")
-            tokens_out_b = usage.get("tokens_out")
-            cost_usd_b = usage.get("cost_usd")
-    except TimeoutError:
-        skip_reason_b = "timeout"
-    except Exception as exc:
-        skip_reason_b = f"error:{type(exc).__name__}"
-
-    # ── 8. scrub model outputs (title, body, source_links) ──────────────────
+    # ── 8. scrub model output (title, body, source_links) ───────────────────
     if result_a:
         result_a["title"], _ = scrub_mod.scrub(result_a.get("title", ""))
         result_a["body"], _ = scrub_mod.scrub(result_a.get("body", ""))
         result_a["source_links"] = [
             scrub_mod.scrub(lnk)[0] for lnk in result_a.get("source_links", [])
-        ]
-    if result_b:
-        result_b["title"], _ = scrub_mod.scrub(result_b.get("title", ""))
-        result_b["body"], _ = scrub_mod.scrub(result_b.get("body", ""))
-        result_b["source_links"] = [
-            scrub_mod.scrub(lnk)[0] for lnk in result_b.get("source_links", [])
         ]
 
     # ── 9 & 10. sanitize title + write Path A ────────────────────────────────
@@ -806,47 +697,17 @@ def run_capture(
         )
         path_a_rel = rel_a
 
-    # ── 11. write Path B ─────────────────────────────────────────────────────
-    path_b_rel: str | None = None
-    if result_b and skip_reason_b is None:
-        title_b = sanitize_title(result_b.get("title", "untitled"))
-        slug_b = make_slug(title_b)
-        fname_b = make_filename(date_str, slug_b, session_id)
-        rel_b = f"Inbox/raw/{fname_b}"
-        full_path_b = vault_dir / "Inbox" / "raw" / fname_b
-        _write_artifact(
-            full_path_b,
-            title=title_b,
-            fm_type="session-summary",
-            project=project,
-            source="claude-code-raw",
-            session_id=session_id,
-            created=date_str,
-            model=MODEL_B,
-            cost_usd=cost_usd_b,
-            redactions=redactions,
-            tags=["claude-code", "raw"] + result_b.get("tags", []),
-            body=result_b.get("body", ""),
-            source_links=result_b.get("source_links", []),
-        )
-        path_b_rel = rel_b
+    # ── 11. append session index ─────────────────────────────────────────────
+    _append_index(session_id, path_a_rel, date_str, index_path=index_path)
 
-    # ── 12. append session index ─────────────────────────────────────────────
-    _append_index(session_id, path_a_rel, path_b_rel, date_str, index_path=index_path)
-
-    # ── 13. append log ───────────────────────────────────────────────────────
+    # ── 12. append log ───────────────────────────────────────────────────────
     entry = build_log_entry(
         session_id=session_id,
         path_a=path_a_rel,
         skip_reason_a=skip_reason_a,
-        path_b=path_b_rel,
-        skip_reason_b=skip_reason_b,
         tokens_in_a=tokens_in_a,
         tokens_out_a=tokens_out_a,
-        tokens_in_b=tokens_in_b,
-        tokens_out_b=tokens_out_b,
         cost_usd_a=cost_usd_a,
-        cost_usd_b=cost_usd_b,
         redactions=redactions,
     )
     append_log(entry, log_path=log_path)

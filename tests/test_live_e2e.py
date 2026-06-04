@@ -6,8 +6,8 @@ MAX SUBSCRIPTION QUOTA and requires the `claude` CLI to be logged in
 (`claude setup-token` → CLAUDE_CODE_OAUTH_TOKEN, or ~/.claude_vault_oauth_token).
 
 It runs a decision-worthy transcript through the full pipeline into a temp vault
-and verifies both artifacts land under tmp_path (never ~/Obsidian), carry valid
-frontmatter, skip cleanly (skip_reason_* is null), and report non-trivial token
+and verifies the artifact lands under tmp_path (never ~/Obsidian), carries valid
+frontmatter, skips cleanly (skip_reason_a is null), and reports non-trivial token
 usage — a regression guard for the cache-token summation in
 _invoke_via_subscription.
 """
@@ -31,7 +31,7 @@ pytestmark = [
 ]
 
 
-def test_subscription_pipeline_writes_both_artifacts(tmp_path, monkeypatch):
+def test_subscription_pipeline_writes_artifact(tmp_path, monkeypatch):
     import curate
 
     monkeypatch.setenv("CAPTURE_USE_SUBSCRIPTION", "1")
@@ -39,7 +39,6 @@ def test_subscription_pipeline_writes_both_artifacts(tmp_path, monkeypatch):
 
     vault_dir = tmp_path / "vault"
     (vault_dir / "Inbox" / "auto").mkdir(parents=True)
-    (vault_dir / "Inbox" / "raw").mkdir(parents=True)
     log_path = tmp_path / "log.md"
     index_path = tmp_path / "session-index.tsv"
 
@@ -54,9 +53,7 @@ def test_subscription_pipeline_writes_both_artifacts(tmp_path, monkeypatch):
     )
 
     auto = list((vault_dir / "Inbox" / "auto").glob("*.md"))
-    raw = list((vault_dir / "Inbox" / "raw").glob("*.md"))
     assert len(auto) == 1, "Path A (decision) should have written one artifact"
-    assert len(raw) == 1, "Path B (raw summary) should have written one artifact"
 
     # never escaped into the real vault
     assert (
@@ -67,16 +64,11 @@ def test_subscription_pipeline_writes_both_artifacts(tmp_path, monkeypatch):
 
     fm_a = parse_frontmatter(auto[0].read_text())
     assert fm_a["source"] == "claude-code-curated"
-    fm_b = parse_frontmatter(raw[0].read_text())
-    assert fm_b["source"] == "claude-code-raw"
 
     entry = json.loads(
         [line for line in log_path.read_text().splitlines() if line.strip()][-1]
     )
     assert entry["skip_reason_a"] is None
-    assert entry["skip_reason_b"] is None
     # cache-token summation guard: subscription usage must be populated, non-trivial
     assert entry["tokens_in_a"] and entry["tokens_in_a"] > 100
     assert entry["tokens_out_a"] and entry["tokens_out_a"] > 0
-    assert entry["tokens_in_b"] and entry["tokens_in_b"] > 100
-    assert entry["tokens_out_b"] and entry["tokens_out_b"] > 0

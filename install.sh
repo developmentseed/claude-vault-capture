@@ -86,8 +86,9 @@ mv "${CONFIG_FILE}.tmp" "$CONFIG_FILE"
 echo "Wrote config: $CONFIG_FILE (CAPTURE_VAULT_DIR=$VAULT)"
 
 # ── 1. Create required directories ───────────────────────────────────────────
+# Path B (Inbox/raw/) retired 2026-06-04 — capture is single-path into Inbox/auto/.
 echo "Creating directories..."
-mkdir -p "$VAULT/Inbox/auto" "$VAULT/Inbox/raw" "$VAULT/claude-docs"
+mkdir -p "$VAULT/Inbox/auto" "$VAULT/claude-docs"
 mkdir -p "$REPO/eval/state"
 mkdir -p "$REPO/eval/fixtures/expected"
 
@@ -96,15 +97,6 @@ EVAL_GITIGNORE="$REPO/eval/.gitignore"
 if ! grep -qxF 'state/' "$EVAL_GITIGNORE" 2>/dev/null; then
     echo 'state/' >> "$EVAL_GITIGNORE"
     echo "Added state/ to eval/.gitignore"
-fi
-
-# ── 3. Vault gitignore (if vault is a git repo) ───────────────────────────────
-if git -C "$VAULT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    VAULT_GITIGNORE="$VAULT/.gitignore"
-    if ! grep -qxF 'Inbox/raw/' "$VAULT_GITIGNORE" 2>/dev/null; then
-        echo 'Inbox/raw/' >> "$VAULT_GITIGNORE"
-        echo "Added Inbox/raw/ to vault .gitignore"
-    fi
 fi
 
 # ── 4. Register SessionEnd hook in settings.json ─────────────────────────────
