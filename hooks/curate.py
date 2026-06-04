@@ -336,14 +336,21 @@ def _invoke_via_api_key(
 ) -> tuple[str, int, int]:
     import anthropic
 
-    client = anthropic.Anthropic()
-    msg = client.messages.create(
-        model=model,
-        max_tokens=max_tokens,
-        system=system_prompt,
-        messages=[{"role": "user", "content": user_text}],
-        timeout=TIMEOUT_SECONDS,
-    )
+    # max_retries=0 so TIMEOUT_SECONDS is a hard wall — the SDK retries on timeout
+    # by default, which would multiply the effective deadline well past 30s.
+    client = anthropic.Anthropic(max_retries=0)
+    try:
+        msg = client.messages.create(
+            model=model,
+            max_tokens=max_tokens,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_text}],
+            timeout=TIMEOUT_SECONDS,
+        )
+    except anthropic.APITimeoutError as exc:
+        # The SDK's timeout type is NOT a subclass of the builtin TimeoutError that
+        # run_capture maps to the `timeout` skip reason, so translate it here.
+        raise TimeoutError(str(exc)) from exc
     return msg.content[0].text.strip(), msg.usage.input_tokens, msg.usage.output_tokens
 
 
