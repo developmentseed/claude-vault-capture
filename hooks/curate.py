@@ -59,6 +59,11 @@ MODEL_B = "claude-haiku-4-5-20251001"
 MAX_TOKENS_A = 2000
 MAX_TOKENS_B = 800
 TIMEOUT_SECONDS = 30
+# Path A nulls non-deterministically: the same transcript can return `null` on
+# one call and a real artifact on the next. Retry once on null to recover those
+# misses at zero precision cost (a genuinely empty session re-nulls). Retry
+# tokens are folded into the usage totals so cost accounting stays accurate.
+PATH_A_NULL_RETRIES = 1
 
 LOG_REQUIRED_KEYS = [
     "schema_version",
@@ -468,24 +473,42 @@ def _call_path_a(scrubbed_text: str, prompts_dir: pathlib.Path) -> dict | None:
         )
 
     system_prompt = (prompts_dir / "curation-system-prompt.md").read_text()
-    text, tokens_in, tokens_out = _invoke_model(
-        MODEL_A, MAX_TOKENS_A, system_prompt, scrubbed_text
-    )
+
+    # Sum tokens across attempts so a retry's cost is fully accounted for.
+    tokens_in = tokens_out = 0
+    data: dict | None = None
+    for _attempt in range(PATH_A_NULL_RETRIES + 1):
+        text, tin, tout = _invoke_model(
+            MODEL_A, MAX_TOKENS_A, system_prompt, scrubbed_text
+        )
+        tokens_in += tin
+        tokens_out += tout
+        raw = _strip_fences(text)
+        if raw.lower() == "null":
+            data = None
+            continue  # non-deterministic null — try once more, then give up
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            # Malformed JSON is not a null; don't retry it (keep the prior
+            # behavior). Attach accumulated usage for the caller's cost log.
+            _log_error(f"PATH_A malformed_json: {raw[:200]}")
+            exc.usage = {  # type: ignore[attr-defined]
+                "tokens_in": tokens_in,
+                "tokens_out": tokens_out,
+                "cost_usd": _estimate_cost_a(tokens_in, tokens_out),
+            }
+            raise
+        break  # got an artifact
+
     usage = {
         "tokens_in": tokens_in,
         "tokens_out": tokens_out,
         # Under subscription this is an estimated API-equivalent cost, not billed.
         "cost_usd": _estimate_cost_a(tokens_in, tokens_out),
     }
-    raw = _strip_fences(text)
-    if raw.lower() == "null":
+    if data is None:
         return {**usage, "_null": True}
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        _log_error(f"PATH_A malformed_json: {raw[:200]}")
-        exc.usage = usage  # type: ignore[attr-defined]
-        raise
     data.update(usage)
     return data
 
