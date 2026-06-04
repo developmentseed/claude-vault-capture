@@ -1,0 +1,56 @@
+# Local quality gate that mirrors CI (.github/workflows/ci.yml + zizmor.yml).
+# Setup:  uv run pre-commit install      (installs pre-commit + pre-push hooks)
+# Run all: uv run pre-commit run --all-files
+#
+# ruff and pytest run via `uv run`, so they use the versions pinned in
+# pyproject.toml — one source of truth, no drift between local hooks and CI.
+
+default_install_hook_types: [pre-commit, pre-push]
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: check-added-large-files
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+        # .jsonl fixtures are line-delimited JSON, not a single document.
+        exclude: \.jsonl$
+
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: uv run ruff check --fix
+        language: system
+        types_or: [python]
+        require_serial: true
+      - id: ruff-format
+        name: ruff format
+        entry: uv run ruff format
+        language: system
+        types_or: [python]
+        require_serial: true
+      - id: pytest
+        name: pytest
+        entry: uv run pytest -q
+        language: system
+        pass_filenames: false
+        # Full suite is fast (~4s, no network) but belongs on push, not on
+        # every commit. CI also runs the installer smoke test.
+        stages: [pre-push]
+
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.11.0.1
+    hooks:
+      - id: shellcheck
+        args: ["--severity=warning"] # matches the CI shellcheck gate
+
+  - repo: https://github.com/zizmorcore/zizmor-pre-commit
+    rev: v1.25.2
+    hooks:
+      - id: zizmor # static-analysis security audit of the workflows

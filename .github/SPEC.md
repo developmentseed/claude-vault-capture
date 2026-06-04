@@ -365,7 +365,7 @@ redactions: {env_var: 0, jwt: 0, private_key: 0, token_prefix: 0, basic_auth_url
 - **Concurrency model for appends.** `append_log()` protects `eval/state/log.md`, `eval/state/session-index.tsv`, `eval/state/scrub-failures.md`, and `~/.claude/hooks.log`. Two layers:
   1. **Cross-process:** `fcntl.flock(f, fcntl.LOCK_EX)` inside `append_log()`, re-opening the file per call so each call has a distinct open-file-description. This is the meaningful protection — two `curate.py` processes can run simultaneously when two sessions close at once.
   2. **In-process:** a module-level `threading.Lock` wraps the `fcntl.flock` call as defense-in-depth. By design all file appends happen in the main thread *after* `ThreadPoolExecutor.shutdown()` joins the two API calls, so thread contention is structurally impossible today — but the threading.Lock guards against future refactors that log from inside a worker. Cheap insurance.
-  
+
   `fcntl` is stdlib on macOS/Linux. Both locks are held only for the duration of the write. `test_append_log.py` exercises the cross-process case with two subprocesses.
 
 ## 6. Testing strategy
@@ -443,7 +443,7 @@ Transcripts can contain pasted secrets, env vars, tokens, or private keys. `scru
   - `hooks.log` records `SCRUB_RULE_FAILED: <rule_name>`.
   - `eval/state/scrub-failures.md` persists the failure across restarts.
   - An Inbox-triage extension (§2.3) reads `scrub-failures.md` and displays `⚠ N scrub rule(s) failed today` at the top of its triage output when entries match the target date. The user acknowledges by manually clearing or archiving the file after reviewing what, if anything, leaked during the failure window. This repo only *writes* the file; surfacing it is the extension's job.
-  
+
   `test_scrub.py` injects a malformed regex string as a rule and asserts: the skip is logged, no exception propagates, `scrub-failures.md` receives a new line, and the rest of the pipeline still runs.
 - Pure Python, unit-testable. No network, no SDK, no subprocess.
 

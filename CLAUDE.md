@@ -5,11 +5,20 @@ Automatically captures Claude Code sessions into an Obsidian vault on `SessionEn
 ## How to run tests
 
 ```bash
-uv sync                # installs anthropic + the default dev group (pytest, pyyaml)
+uv sync                # installs anthropic + the default dev group (pytest, pyyaml, ruff, pre-commit)
 uv run pytest          # 155 tests, no network (a 156th is opt-in live, skipped)
 CAPTURE_MOCK_SDK=1 uv run pytest -k failure_isolation   # specific test with mock SDK
 bash eval/run-install-smoke.sh   # installer smoke test (tmp dirs, no real writes)
 ```
+
+## Local checks (pre-commit)
+
+```bash
+uv run pre-commit install          # one-time: installs pre-commit + pre-push hooks
+uv run pre-commit run --all-files  # run every hook against the whole repo
+```
+
+`.pre-commit-config.yaml` mirrors the CI gates so failures surface before they reach CI: ruff check + format and pytest (pre-push) run via `uv run`, so they use the **same versions pinned in `pyproject.toml`** — no drift from CI. shellcheck (`-S warning`) and zizmor (workflow + dependabot security audit) run as hosted hooks. The CI `lint`/`zizmor` jobs remain the enforced gate; pre-commit is the local mirror.
 
 No test requires a live Anthropic API key. `CAPTURE_MOCK_SDK=1` substitutes `eval/fixtures/mock-responses.json`. The live test runs only with `CAPTURE_LIVE_TESTS=1`. PyYAML is a **test-only** dependency — runtime parses frontmatter with stdlib regex and never imports `yaml`.
 
