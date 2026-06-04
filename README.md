@@ -86,7 +86,7 @@ The installer has its own smoke test: `bash eval/run-install-smoke.sh`.
 Extra variables (e.g. `CAPTURE_USE_SUBSCRIPTION=1`) can be added to `capture.env` —
 the hook sources the whole file before launching the worker.
 
-### Using your Claude Max subscription instead of an API key
+### Using your Claude Pro or Max subscription instead of an API key
 
 By default the two model calls hit the metered Messages API (`ANTHROPIC_API_KEY`).
 Set `CAPTURE_USE_SUBSCRIPTION=1` to route them through the Claude Code runtime
