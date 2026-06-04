@@ -92,7 +92,7 @@ model: <model-id>
 <document body — verbatim content, preserving all headings, code blocks, and lists>
 ```
 
-Do not add a `## Referenced in` section — that is appended later by the daily-devlog and weekly-recap skills when the document is linked.
+Do not add a `## Referenced in` section — it is appended later (if at all) by an Inbox-triage extension when the document is linked from a daily/weekly note.
 
 ## Step 5 — Confirm
 

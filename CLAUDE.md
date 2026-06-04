@@ -34,10 +34,10 @@ session-end-capture.sh  →  curate.py (backgrounded, nohup)
 - `prompts/curation-system-prompt.md` / `prompts/raw-baseline-prompt.md` — the only model-facing prompts; every change is a commit.
 - `eval/state/log.md` — JSON-lines eval log (gitignored); `eval/state/session-index.tsv` — dedup index.
 
-**Skill integrations** (installed by `install.sh`). Patch files carry `__VAULT_DIR__` / `__REPO_DIR__` placeholders that the installer substitutes with the user's resolved absolute paths:
-- `/daily-devlog` patch (`skill-patches/daily-devlog.step-9.5.md`) — Inbox sweep step after daily confirmation. **Optional**: skipped (with a note) if the skill or its anchor is absent.
-- `/weekly-recap` patch (`skill-patches/weekly-recap.step-8.md`) — Inbox sweep step after recap writing. **Optional**, same as above.
+**Skill integrations** (installed by `install.sh`). The remaining patch file carries `__VAULT_DIR__` / `__REPO_DIR__` placeholders that the installer substitutes with the user's resolved absolute paths:
 - `/vault-save` skill (`skill-patches/vault-save.md`) — on-demand export of a Claude-generated markdown document to `<vault>/claude-docs/`. No model call; Claude writes the file directly with structured frontmatter (`source: claude-code-export`). Always installed. Auto-triggered when the user asks to save/export a document to their vault (via `~/.claude/CLAUDE.md` injection from `skill-patches/global-claude-md.vault-save-trigger.md`).
+
+**Inbox triage is out-of-scope for this repo.** Promoting/backlinking captured artifacts is handled by *external extensions* (e.g. `claude-vault-capture-private`) that consume the documented Inbox contract: they read `Inbox/{auto,raw}/` and read-only `eval/state/{session-index.tsv,log.md,scrub-failures.md}`, and set `CAPTURE_EXCLUDED_COMMANDS` in `capture.env` to skip capturing their own workflow sessions. The public repo never patches `/daily-devlog` or `/weekly-recap`.
 
 ## Invariants — never violate these
 
@@ -53,7 +53,7 @@ session-end-capture.sh  →  curate.py (backgrounded, nohup)
 
 | skip_reason | when |
 |---|---|
-| `excluded_command` | user turn starts with `/daily-devlog` or `/weekly-recap` |
+| `excluded_command` | a user turn starts with a command listed in `CAPTURE_EXCLUDED_COMMANDS` (empty by default; set by extensions via `capture.env`) |
 | `threshold` | < 3 user turns OR < 1500 chars of user content |
 | `token_limit` | `len(scrubbed_text) // 4 > CAPTURE_MAX_EST_TOKENS` (default 50 000) |
 | `duplicate` | session_id already present in session-index.tsv |

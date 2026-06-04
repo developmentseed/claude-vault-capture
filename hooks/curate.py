@@ -25,7 +25,14 @@ from typing import Any
 
 CAPTURE_MAX_EST_TOKENS: int = int(os.environ.get("CAPTURE_MAX_EST_TOKENS", "50000"))
 
-EXCLUDED_COMMANDS: list[str] = ["/daily-devlog", "/weekly-recap"]
+# Slash commands whose sessions are NOT captured. Empty by default — the public
+# pipeline archives everything. Extensions (e.g. claude-vault-capture-private) set
+# CAPTURE_EXCLUDED_COMMANDS in capture.env to skip their own workflow sessions.
+EXCLUDED_COMMANDS: list[str] = [
+    c.strip()
+    for c in os.environ.get("CAPTURE_EXCLUDED_COMMANDS", "").split(",")
+    if c.strip()
+]
 
 # Repo root is derived from this file's location, so the checkout can live anywhere.
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -550,7 +557,9 @@ def run_capture(
     scrubbed_text, redactions = scrub_mod.scrub(raw_text)
 
     # ── 2. excluded command check ─────────────────────────────────────────────
-    if uses_excluded_command(transcript):
+    # Pass the module-level list explicitly (resolved at call time, not frozen as a
+    # default arg) so it reflects CAPTURE_EXCLUDED_COMMANDS and stays test-patchable.
+    if uses_excluded_command(transcript, EXCLUDED_COMMANDS):
         entry = build_log_entry(
             session_id=session_id,
             path_a=None, skip_reason_a="excluded_command",
