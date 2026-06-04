@@ -1,10 +1,18 @@
 """Unit tests for frontmatter + filename (slug + sid8) + title sanitization."""
-import sys, pathlib
+
+import sys
+import pathlib
+
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent / "hooks"))
 
-import pytest
 import yaml
-from curate import sanitize_title, sanitize_summary, make_slug, make_filename, render_frontmatter
+from curate import (
+    sanitize_title,
+    sanitize_summary,
+    make_slug,
+    make_filename,
+    render_frontmatter,
+)
 
 
 class TestSanitizeTitle:
@@ -78,7 +86,9 @@ class TestMakeSlug:
         assert make_slug("") == "untitled"
 
     def test_deterministic(self):
-        assert make_slug("Decision: use PostgreSQL") == make_slug("Decision: use PostgreSQL")
+        assert make_slug("Decision: use PostgreSQL") == make_slug(
+            "Decision: use PostgreSQL"
+        )
 
 
 class TestMakeFilename:
@@ -133,9 +143,16 @@ class TestRenderFrontmatter:
 
     def test_starts_and_ends_with_dashes(self):
         fm = render_frontmatter(
-            title="T", fm_type="decision", project="p", tags=[],
-            source="s", session_id="s", created="2026-04-23",
-            model="m", cost_usd=0.0, redactions={},
+            title="T",
+            fm_type="decision",
+            project="p",
+            tags=[],
+            source="s",
+            session_id="s",
+            created="2026-04-23",
+            model="m",
+            cost_usd=0.0,
+            redactions={},
         )
         assert fm.startswith("---")
         assert "---\n" in fm[3:]  # closing delimiter present
@@ -186,7 +203,9 @@ class TestSanitizeSummary:
 class TestDescriptionYaml:
     def test_multiline_description_roundtrip(self):
         description = "First paragraph of the description.\n\nSecond paragraph with more detail.\n\nThird paragraph concluding the description."
-        indented = "\n".join(f"  {line}" if line else "" for line in description.split("\n"))
+        indented = "\n".join(
+            f"  {line}" if line else "" for line in description.split("\n")
+        )
         yaml_body = f"title: Test\ndescription: |\n{indented}\n"
         parsed = yaml.safe_load(yaml_body)
         assert parsed["description"].strip() == description.strip()

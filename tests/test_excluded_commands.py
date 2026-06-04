@@ -4,6 +4,7 @@ The public default for EXCLUDED_COMMANDS is empty (the pipeline captures
 everything); extensions populate it via CAPTURE_EXCLUDED_COMMANDS. These tests
 exercise the matching *mechanism* by passing the command list explicitly.
 """
+
 import sys
 import pathlib
 
@@ -25,30 +26,44 @@ def _msgs(*user_texts):
 
 class TestUsesExcludedCommand:
     def test_configured_command_triggers(self):
-        assert uses_excluded_command(_msgs("/my-journal"), excluded_commands=CMDS) is True
+        assert (
+            uses_excluded_command(_msgs("/my-journal"), excluded_commands=CMDS) is True
+        )
 
     def test_second_configured_command_triggers(self):
         assert uses_excluded_command(_msgs("/my-recap"), excluded_commands=CMDS) is True
 
     def test_command_at_start_of_line_triggers(self):
-        assert uses_excluded_command(
-            _msgs("context\n/my-journal\nmore text"), excluded_commands=CMDS
-        ) is True
+        assert (
+            uses_excluded_command(
+                _msgs("context\n/my-journal\nmore text"), excluded_commands=CMDS
+            )
+            is True
+        )
 
     def test_command_mid_sentence_does_not_trigger(self):
-        assert uses_excluded_command(
-            _msgs("please run /my-journal now"), excluded_commands=CMDS
-        ) is False
+        assert (
+            uses_excluded_command(
+                _msgs("please run /my-journal now"), excluded_commands=CMDS
+            )
+            is False
+        )
 
     def test_command_quoted_in_prose_does_not_trigger(self):
-        assert uses_excluded_command(
-            _msgs('exclude "/my-journal" from capture'), excluded_commands=CMDS
-        ) is False
+        assert (
+            uses_excluded_command(
+                _msgs('exclude "/my-journal" from capture'), excluded_commands=CMDS
+            )
+            is False
+        )
 
     def test_normal_session_passes(self):
-        assert uses_excluded_command(
-            _msgs("fix the bug", "looks good", "ship it"), excluded_commands=CMDS
-        ) is False
+        assert (
+            uses_excluded_command(
+                _msgs("fix the bug", "looks good", "ship it"), excluded_commands=CMDS
+            )
+            is False
+        )
 
     def test_assistant_turn_ignored(self):
         msgs = [

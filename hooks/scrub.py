@@ -10,6 +10,7 @@ Design:
 - Fail-safe: re.error on a rule → skip that rule, log to scrub-failures.md
 - All patterns compiled with re.MULTILINE
 """
+
 import re
 import os
 import datetime
@@ -23,7 +24,12 @@ def _failures_path() -> pathlib.Path:
     if env:
         return pathlib.Path(env)
     # Derived from this file's location so the checkout can live anywhere.
-    return pathlib.Path(__file__).resolve().parent.parent / "eval" / "state" / "scrub-failures.md"
+    return (
+        pathlib.Path(__file__).resolve().parent.parent
+        / "eval"
+        / "state"
+        / "scrub-failures.md"
+    )
 
 
 def _log_failure(rule_name: str, exc: Exception) -> None:
@@ -70,6 +76,7 @@ def scrub(text: str) -> tuple[str, dict[str, int]]:
             def _replace_env(m: re.Match) -> str:
                 counts[name] += 1
                 return m.group(0).replace(m.group("v"), sentinel)
+
             result = pat.sub(_replace_env, result)
 
         elif rule.get("replace_group"):
@@ -77,12 +84,15 @@ def scrub(text: str) -> tuple[str, dict[str, int]]:
             def _replace_url(m: re.Match, _s=sentinel, _n=name) -> str:
                 counts[_n] += 1
                 return m.group(1) + _s + m.group(2)
+
             result = pat.sub(_replace_url, result)
 
         else:
+
             def _replace_simple(m: re.Match, _s=sentinel, _n=name) -> str:
                 counts[_n] += 1
                 return _s
+
             result = pat.sub(_replace_simple, result)
 
     return result, counts

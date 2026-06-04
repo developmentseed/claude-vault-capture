@@ -4,10 +4,12 @@ Path A error must not prevent Path B write, and vice versa.
 Token/cost data must be preserved even when JSON parsing fails or model returns null.
 Uses CAPTURE_MOCK_SDK=1 with a mock entry that raises.
 """
-import sys, pathlib, os, json, tempfile
-sys.path.insert(0, str(pathlib.Path(__file__).parent.parent / "hooks"))
 
-import pytest
+import sys
+import pathlib
+import json
+
+sys.path.insert(0, str(pathlib.Path(__file__).parent.parent / "hooks"))
 
 
 def _make_transcript(n_turns=3, chars=600) -> list[dict]:
@@ -28,6 +30,7 @@ def _run_with_mocks(tmp_path, monkeypatch, mock_a, mock_b, sid="test-session"):
 
     monkeypatch.setenv("CAPTURE_MOCK_SDK", "1")
     import curate
+
     monkeypatch.setattr(curate, "_call_path_a", mock_a)
     monkeypatch.setattr(curate, "_call_path_b", mock_b)
 
@@ -40,7 +43,7 @@ def _run_with_mocks(tmp_path, monkeypatch, mock_a, mock_b, sid="test-session"):
         index_path=index_file,
         date_str="2026-05-10",
     )
-    log_lines = [l for l in log_file.read_text().splitlines() if l.strip()]
+    log_lines = [line for line in log_file.read_text().splitlines() if line.strip()]
     return json.loads(log_lines[-1])
 
 
@@ -57,17 +60,29 @@ class TestFailureIsolation:
         monkeypatch.setenv("CAPTURE_MOCK_SDK", "1")
         # Mock that raises for Path A, returns valid data for Path B
         import curate
-        monkeypatch.setattr(curate, "_call_path_a", lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("boom")))
-        monkeypatch.setattr(curate, "_call_path_b", lambda *a, **kw: {
-            "title": "Test Summary",
-            "type": "session-summary",
-            "body": "## What happened\n- Something",
-            "source_links": [],
-            "tags": ["test"],
-            "tokens_in": 100, "tokens_out": 50, "cost_usd": 0.001,
-        })
+
+        monkeypatch.setattr(
+            curate,
+            "_call_path_a",
+            lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("boom")),
+        )
+        monkeypatch.setattr(
+            curate,
+            "_call_path_b",
+            lambda *a, **kw: {
+                "title": "Test Summary",
+                "type": "session-summary",
+                "body": "## What happened\n- Something",
+                "source_links": [],
+                "tags": ["test"],
+                "tokens_in": 100,
+                "tokens_out": 50,
+                "cost_usd": 0.001,
+            },
+        )
 
         from curate import run_capture
+
         run_capture(
             transcript=_make_transcript(),
             session_id="test-session-isolation-1",
@@ -87,7 +102,7 @@ class TestFailureIsolation:
         assert len(auto_files) == 0
 
         # Log entry should reflect the error on path A and success on path B
-        log_lines = [l for l in log_file.read_text().splitlines() if l.strip()]
+        log_lines = [line for line in log_file.read_text().splitlines() if line.strip()]
         assert len(log_lines) == 1
         entry = json.loads(log_lines[0])
         assert entry["path_a"] is None
@@ -106,17 +121,29 @@ class TestFailureIsolation:
 
         monkeypatch.setenv("CAPTURE_MOCK_SDK", "1")
         import curate
-        monkeypatch.setattr(curate, "_call_path_a", lambda *a, **kw: {
-            "title": "Decision: Use PostgreSQL",
-            "type": "decision",
-            "body": "We decided to use PostgreSQL because...",
-            "source_links": [],
-            "tags": ["backend"],
-            "tokens_in": 200, "tokens_out": 100, "cost_usd": 0.01,
-        })
-        monkeypatch.setattr(curate, "_call_path_b", lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("b-boom")))
+
+        monkeypatch.setattr(
+            curate,
+            "_call_path_a",
+            lambda *a, **kw: {
+                "title": "Decision: Use PostgreSQL",
+                "type": "decision",
+                "body": "We decided to use PostgreSQL because...",
+                "source_links": [],
+                "tags": ["backend"],
+                "tokens_in": 200,
+                "tokens_out": 100,
+                "cost_usd": 0.01,
+            },
+        )
+        monkeypatch.setattr(
+            curate,
+            "_call_path_b",
+            lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("b-boom")),
+        )
 
         from curate import run_capture
+
         run_capture(
             transcript=_make_transcript(),
             session_id="test-session-isolation-2",
@@ -135,7 +162,7 @@ class TestFailureIsolation:
         raw_files = list(inbox_raw.glob("*.md"))
         assert len(raw_files) == 0
 
-        log_lines = [l for l in log_file.read_text().splitlines() if l.strip()]
+        log_lines = [line for line in log_file.read_text().splitlines() if line.strip()]
         entry = json.loads(log_lines[0])
         assert entry["path_a"] is not None
         assert entry["skip_reason_a"] is None
@@ -148,16 +175,27 @@ class TestTokenCaptureOnFailure:
 
     def _mock_b_ok(self, *a, **kw):
         return {
-            "title": "Summary", "type": "session-summary",
-            "body": "content", "source_links": [], "tags": [],
-            "tokens_in": 500, "tokens_out": 80, "cost_usd": 0.0002,
+            "title": "Summary",
+            "type": "session-summary",
+            "body": "content",
+            "source_links": [],
+            "tags": [],
+            "tokens_in": 500,
+            "tokens_out": 80,
+            "cost_usd": 0.0002,
         }
 
     def test_model_returned_null_preserves_tokens(self, tmp_path, monkeypatch):
         """Path A returning null should still log token usage."""
         entry = _run_with_mocks(
-            tmp_path, monkeypatch,
-            mock_a=lambda *a, **kw: {"_null": True, "tokens_in": 1200, "tokens_out": 5, "cost_usd": 0.0036},
+            tmp_path,
+            monkeypatch,
+            mock_a=lambda *a, **kw: {
+                "_null": True,
+                "tokens_in": 1200,
+                "tokens_out": 5,
+                "cost_usd": 0.0036,
+            },
             mock_b=self._mock_b_ok,
             sid="test-null-tokens",
         )
@@ -168,13 +206,15 @@ class TestTokenCaptureOnFailure:
 
     def test_malformed_json_preserves_tokens(self, tmp_path, monkeypatch):
         """Path B malformed_json should still log token usage via exc.usage."""
+
         def mock_b_malformed(*a, **kw):
             exc = json.JSONDecodeError("bad", "", 0)
             exc.usage = {"tokens_in": 800, "tokens_out": 60, "cost_usd": 0.0003}
             raise exc
 
         entry = _run_with_mocks(
-            tmp_path, monkeypatch,
+            tmp_path,
+            monkeypatch,
             mock_a=self._mock_b_ok,  # re-use as a valid path A mock
             mock_b=mock_b_malformed,
             sid="test-malformed-tokens",
@@ -186,11 +226,13 @@ class TestTokenCaptureOnFailure:
 
     def test_malformed_json_without_usage_attr(self, tmp_path, monkeypatch):
         """Graceful fallback when exc.usage is absent (pre-fix callers)."""
+
         def mock_b_plain_error(*a, **kw):
             raise json.JSONDecodeError("bad", "", 0)
 
         entry = _run_with_mocks(
-            tmp_path, monkeypatch,
+            tmp_path,
+            monkeypatch,
             mock_a=self._mock_b_ok,
             mock_b=mock_b_plain_error,
             sid="test-malformed-no-usage",

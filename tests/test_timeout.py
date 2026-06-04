@@ -5,6 +5,7 @@ of the builtin TimeoutError, so run_capture's `except TimeoutError` never caught
 it and a timed-out call was mislabeled `error:APITimeoutError` instead of the
 documented `timeout` skip reason. _invoke_via_api_key now normalizes it.
 """
+
 import json
 
 import anthropic
@@ -16,6 +17,7 @@ import curate
 
 def _timeout_client(*args, **kwargs):
     """Stand-in anthropic.Anthropic whose .messages.create always times out."""
+
     class _Msgs:
         def create(self, **_):
             raise anthropic.APITimeoutError(

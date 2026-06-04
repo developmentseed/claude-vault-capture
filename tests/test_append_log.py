@@ -1,8 +1,11 @@
 """Unit tests for concurrent append_log() correctness — cross-process case."""
-import sys, pathlib, json, subprocess, tempfile, time
-sys.path.insert(0, str(pathlib.Path(__file__).parent.parent / "hooks"))
 
-import pytest
+import sys
+import pathlib
+import json
+import subprocess
+
+sys.path.insert(0, str(pathlib.Path(__file__).parent.parent / "hooks"))
 
 
 _HOOKS_DIR = str(pathlib.Path(__file__).parent.parent / "hooks")
@@ -39,15 +42,16 @@ class TestAppendLog:
         p1.wait(timeout=10)
         p2.wait(timeout=10)
 
-        lines = [l for l in log_file.read_text().splitlines() if l.strip()]
+        lines = [line for line in log_file.read_text().splitlines() if line.strip()]
         assert len(lines) == 2
 
-        parsed = [json.loads(l) for l in lines]
+        parsed = [json.loads(line) for line in lines]
         session_ids = {e["session_id"] for e in parsed}
         assert session_ids == {"aaa", "bbb"}
 
     def test_single_append_creates_file(self, tmp_path):
         from curate import append_log
+
         log_file = tmp_path / "new_log.md"
         assert not log_file.exists()
         append_log({"key": "value"}, log_path=log_file)
@@ -57,10 +61,11 @@ class TestAppendLog:
 
     def test_multiple_appends_each_valid_json(self, tmp_path):
         from curate import append_log
+
         log_file = tmp_path / "log.md"
         for i in range(5):
             append_log({"i": i}, log_path=log_file)
-        lines = [l for l in log_file.read_text().splitlines() if l.strip()]
+        lines = [line for line in log_file.read_text().splitlines() if line.strip()]
         assert len(lines) == 5
         for line in lines:
             json.loads(line)  # must not raise

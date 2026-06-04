@@ -1,4 +1,8 @@
-import os, sys, pathlib, tempfile
+import os
+import sys
+import pathlib
+import tempfile
+
 # Ensure hooks/ is always on the path for all test modules
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent / "hooks"))
 
@@ -158,9 +162,9 @@ def run_main(monkeypatch, temp_vault):
         if not temp_vault.log_path.exists():
             return []
         return [
-            json.loads(l)
-            for l in temp_vault.log_path.read_text().splitlines()
-            if l.strip()
+            json.loads(line)
+            for line in temp_vault.log_path.read_text().splitlines()
+            if line.strip()
         ]
 
     return _run

@@ -1,8 +1,11 @@
 """Tests for _strip_fences and token capture on failure paths."""
-import sys, pathlib, json
+
+import sys
+import pathlib
+import json
+
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent / "hooks"))
 
-import pytest
 from curate import _strip_fences
 
 
@@ -26,15 +29,15 @@ class TestStripFences:
         assert json.loads(_strip_fences(text)) == {"k": "v"}
 
     def test_text_before_fence(self):
-        text = 'Here is the result:\n' + BT + 'json\n{"k": "v"}\n' + BT
+        text = "Here is the result:\n" + BT + 'json\n{"k": "v"}\n' + BT
         assert json.loads(_strip_fences(text)) == {"k": "v"}
 
     def test_text_after_fence(self):
-        text = BT + 'json\n{"k": "v"}\n' + BT + '\nHope this helps!'
+        text = BT + 'json\n{"k": "v"}\n' + BT + "\nHope this helps!"
         assert json.loads(_strip_fences(text)) == {"k": "v"}
 
     def test_text_both_sides(self):
-        text = 'Output:\n' + BT + 'json\n{"k": "v"}\n' + BT + '\nDone.'
+        text = "Output:\n" + BT + 'json\n{"k": "v"}\n' + BT + "\nDone."
         assert json.loads(_strip_fences(text)) == {"k": "v"}
 
     def test_four_backticks(self):
@@ -42,7 +45,7 @@ class TestStripFences:
         assert json.loads(_strip_fences(text)) == {"k": "v"}
 
     def test_trailing_newline(self):
-        text = BT + 'json\n{"k": "v"}\n' + BT + '\n'
+        text = BT + 'json\n{"k": "v"}\n' + BT + "\n"
         assert json.loads(_strip_fences(text)) == {"k": "v"}
 
     def test_multiline_json_in_fences(self):

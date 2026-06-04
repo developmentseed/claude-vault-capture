@@ -1,4 +1,4 @@
-"""Pattern/sentinel definitions for scrub.py.
+r"""Pattern/sentinel definitions for scrub.py.
 
 All patterns are compiled with re.MULTILINE so ^ and $ match every line.
 Cross-line patterns use [\s\S] explicitly — not re.DOTALL — so future flag

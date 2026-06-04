@@ -47,9 +47,13 @@ if [[ "${CAPTURE_USE_SUBSCRIPTION:-}" == "1" ]]; then
     # Subscription mode: the Claude Agent SDK authenticates with this OAuth token
     # (generate it once with `claude setup-token`).
     if [[ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" && -f "$HOME/.claude_vault_oauth_token" ]]; then
+        # SC2155: export masks cat's exit code on purpose — a token-read hiccup must
+        # not abort this close-path hook under `set -e`; curate.py handles missing creds.
+        # shellcheck disable=SC2155
         export CLAUDE_CODE_OAUTH_TOKEN="$(cat "$HOME/.claude_vault_oauth_token")"
     fi
 elif [[ -z "${ANTHROPIC_API_KEY:-}" && -f "$HOME/.claude_vault_token" ]]; then
+    # shellcheck disable=SC2155  # see rationale above: don't abort the close path
     export ANTHROPIC_API_KEY="$(cat "$HOME/.claude_vault_token")"
 fi
 

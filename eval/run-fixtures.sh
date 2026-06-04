@@ -38,7 +38,8 @@ run_fixture() {
         return
     fi
 
-    local session_id="fixture-${name}-$(date +%s)-$RANDOM"
+    local session_id
+    session_id="fixture-${name}-$(date +%s)-$RANDOM"
     local log_file="$LOG_TMP/log-${name}.md"
     local index_file="$LOG_TMP/index-${name}.tsv"
 
