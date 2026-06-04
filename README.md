@@ -99,14 +99,62 @@ the hook sources the whole file before launching the worker.
 By default the two model calls hit the metered Messages API (`ANTHROPIC_API_KEY`).
 Set `CAPTURE_USE_SUBSCRIPTION=1` to route them through the Claude Code runtime
 (via the [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview))
-and bill them to your subscription instead:
+and bill them to your Pro or Max subscription instead. Works the same on either
+plan — both share the rolling rate limit noted in the trade-offs below.
+
+**1. Install the transport and turn the flag on**
 
 ```bash
-uv sync --extra subscription               # transport for subscription mode
-claude setup-token                         # generate a long-lived OAuth token
-echo "<token>" > ~/.claude_vault_oauth_token   # or export CLAUDE_CODE_OAUTH_TOKEN
+uv sync --extra subscription                 # installs claude-agent-sdk (the `claude` CLI must also be installed)
 echo 'CAPTURE_USE_SUBSCRIPTION=1' >> capture.env
 ```
+
+**2. Generate a long-lived OAuth token**
+
+Run this in a *normal terminal* — it opens a browser (or prints a URL to open),
+so it can't complete from inside a non-interactive shell:
+
+```bash
+claude setup-token        # authorize in the browser; it prints a token starting with sk-ant-oat01-…
+```
+
+**3. Make the token available to the hook**
+
+The hook authenticates with `CLAUDE_CODE_OAUTH_TOKEN`, falling back to the file
+`~/.claude_vault_oauth_token`. Choose one of:
+
+*Option A — plaintext file (simplest):*
+
+```bash
+umask 077 && printf '%s\n' '<token>' > ~/.claude_vault_oauth_token
+```
+
+*Option B — macOS Keychain (recommended; no plaintext token on disk):*
+
+Store the token in your login Keychain once, then let `capture.env` resolve it
+at hook time. `capture.env` is sourced with `set -a`, so the export reaches the
+backgrounded worker.
+
+```bash
+# Store it once. -A lets the background hook read it without a GUI prompt:
+security add-generic-password -U -a "$(id -un)" -s claude-vault-oauth -w '<token>' -A
+
+# Point capture.env at the Keychain item:
+cat >> capture.env <<'EOF'
+export CLAUDE_CODE_OAUTH_TOKEN="$(security find-generic-password -s claude-vault-oauth -w 2>/dev/null)"
+EOF
+```
+
+The lookup is by service name only (no `-a` on read) so it still works even
+though Claude Code strips `$USER` from the hook environment; `2>/dev/null` plus
+the export's masked exit code mean a Keychain miss can never abort the
+sub-200 ms close path. Rotate the token later with the same
+`security add-generic-password -U …` command, and revert to API-key mode by
+removing the two subscription lines from `capture.env`.
+
+**Verify it worked:** after your next session ends, `tail ~/.claude/hooks.log`
+should show a normal capture with no `CLAUDE_CODE_OAUTH_TOKEN not set` line, and
+the new `eval/state/log.md` entry will carry an *estimated* `cost_usd`.
 
 **Trade-offs:** background captures draw from the *same* rolling rate limit as
 your interactive Claude Code usage; the `claude` CLI must be installed; and
