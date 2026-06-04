@@ -5,8 +5,7 @@
       "release-type": "python",
       "package-name": "claude-vault-capture",
       "changelog-path": "CHANGELOG.md",
-      "include-component-in-tag": false,
-      "bootstrap-sha": "74a03077ee55a6855e62826281bc3d939a5f20f0"
+      "include-component-in-tag": false
     }
   }
 }
