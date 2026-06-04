@@ -33,7 +33,7 @@ choice from `capture.env`, or prompts you. Your vault path is written to a
 gitignored `capture.env` and never committed.
 
 The installer is idempotent — safe to re-run after updates. It:
-- Creates `<vault>/Inbox/{auto,raw}/` and `<vault>/claude-docs/`
+- Creates `<vault>/Inbox/auto/` and `<vault>/claude-docs/`
 - Registers the `SessionEnd` hook in `~/.claude/settings.json`
 - Writes `capture.env` with your `CAPTURE_VAULT_DIR`
 - Installs the `/vault-save` skill and its auto-trigger
@@ -64,10 +64,10 @@ Sessions are silently skipped when: fewer than 3 user turns, under 1500 chars of
 ## Tests
 
 ```bash
-uv run pytest          # 155 tests, no network, no API key needed
+uv run pytest          # 158 tests, no network, no API key needed
 ```
 
-A 156th test makes real model calls and is skipped unless `CAPTURE_LIVE_TESTS=1`.
+An opt-in live test makes real model calls and is skipped unless `CAPTURE_LIVE_TESTS=1`.
 The installer has its own smoke test: `bash eval/run-install-smoke.sh`.
 
 If you plan to contribute, install the git hooks so the same checks CI runs
@@ -95,10 +95,10 @@ the hook sources the whole file before launching the worker.
 
 ### Using your Claude Pro or Max subscription instead of an API key
 
-By default the two model calls hit the metered Messages API (`ANTHROPIC_API_KEY`).
-Set `CAPTURE_USE_SUBSCRIPTION=1` to route them through the Claude Code runtime
+By default the model call hits the metered Messages API (`ANTHROPIC_API_KEY`).
+Set `CAPTURE_USE_SUBSCRIPTION=1` to route it through the Claude Code runtime
 (via the [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview))
-and bill them to your Pro or Max subscription instead. Works the same on either
+and bill it to your Pro or Max subscription instead. Works the same on either
 plan — both share the rolling rate limit noted in the trade-offs below.
 
 **1. Install the transport and turn the flag on**
