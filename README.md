@@ -38,7 +38,6 @@ The installer is idempotent — safe to re-run after updates. It:
 - Registers the `SessionEnd` hook in `~/.claude/settings.json`
 - Writes `capture.env` with your `CAPTURE_VAULT_DIR`
 - Installs the `/vault-save` skill and its auto-trigger
-- Optionally patches the `/daily-devlog` and `/weekly-recap` skills if present (see [Optional integrations](#optional-integrations))
 
 To use your Max subscription instead of an API key, also install the Agent SDK:
 
@@ -61,7 +60,7 @@ tail -1 eval/state/log.md | python3 -m json.tool
 ls "$(grep -E '^CAPTURE_VAULT_DIR=' capture.env | cut -d= -f2- | tr -d '\"')"/Inbox/auto/
 ```
 
-Sessions are silently skipped when: fewer than 3 user turns, under 1500 chars of user content, an excluded command was used (`/daily-devlog`, `/weekly-recap`), or the session is already indexed.
+Sessions are silently skipped when: fewer than 3 user turns, under 1500 chars of user content, a command listed in `CAPTURE_EXCLUDED_COMMANDS` was used (empty by default — see [Consuming captures](#consuming-captures-the-inbox-contract)), or the session is already indexed.
 
 ## Tests
 
@@ -82,6 +81,7 @@ The installer has its own smoke test: `bash eval/run-install-smoke.sh`.
 | `CLAUDE_CODE_OAUTH_TOKEN` | — | Subscription auth; falls back to `~/.claude_vault_oauth_token` |
 | `CAPTURE_MAX_EST_TOKENS` | `50000` | Token ceiling before skipping (~200 KB transcript) |
 | `CAPTURE_MOCK_SDK` | — | Set to `1` to skip API calls and use fixture responses |
+| `CAPTURE_EXCLUDED_COMMANDS` | — | Comma-separated slash commands whose sessions are not captured (e.g. `/daily-devlog,/weekly-recap`). Empty by default |
 
 Extra variables (e.g. `CAPTURE_USE_SUBSCRIPTION=1`) can be added to `capture.env` —
 the hook sources the whole file before launching the worker.
@@ -106,22 +106,31 @@ your interactive Claude Code usage; the `claude` CLI must be installed; and
 Token counts still come from the SDK's result message. `max_tokens` has no
 equivalent in this mode — output length is governed by the runtime.
 
-## Optional integrations
+## Consuming captures: the Inbox contract
 
-If you use the author's `/daily-devlog` and `/weekly-recap` skills, the installer
-can add an "Inbox sweep" step to each so captured artifacts get triaged into your
-vault. These are **optional** — if the skills (or their anchor comments) aren't
-present, the installer prints a note and skips them; core capture still works.
+This project is a capture *engine*. Triaging captured artifacts into structured
+vault folders (promoting, backlinking, weekly rollups) is left to **extensions** that
+build on a stable, documented interface. One such extension is
+[`claude-vault-capture-private`](https://github.com/lhoupert/claude-vault-capture-private),
+which patches the author's `/daily-devlog` and `/weekly-recap` skills with an Inbox
+sweep — kept separate because it's wired to one person's skills and vault layout.
 
-To enable them, add an anchor comment to each skill before installing:
+An extension consumes:
 
-```bash
-# ~/.claude/skills/daily-devlog/SKILL.md — after the confirmation step:
-# <!-- anchor: after-confirmation-step -->
+**Outputs** (the captured artifacts) in your vault:
+- `Inbox/auto/` — curated artifacts; `Inbox/raw/` — raw summaries.
+- Filenames: `YYYY-MM-DD-<slug>-<sid8>.md`. Frontmatter includes `session_id`,
+  `created` (date), `source`, `type`, and `tags`.
 
-# ~/.claude/skills/weekly-recap/SKILL.md — after the recap writing step:
-# <!-- anchor: after-recap-writing -->
-```
+**Read-only runtime state** in the repo's gitignored `eval/state/`:
+- `session-index.tsv` — `<session_id>\t<path_a_or_null>\t<path_b_or_null>\t<date>`.
+- `log.md` — per-session JSON-lines (skip reasons, costs, token counts).
+- `scrub-failures.md` — dated lines when a scrub rule failed.
+
+Extensions **read** these; they should never write into `eval/state/` (keep their own
+state elsewhere). To stop the pipeline from archiving an extension's own workflow
+sessions, set **`CAPTURE_EXCLUDED_COMMANDS`** (comma-separated slash commands) in
+`capture.env` — empty by default, so the public pipeline captures everything.
 
 The `/vault-save` skill (on-demand export of a Claude-generated document to your
 vault) is always installed.
@@ -149,7 +158,7 @@ hooks/
 prompts/
   curation-system-prompt.md  # Path A — Sonnet, may return null
   raw-baseline-prompt.md     # Path B — Haiku, always summarizes
-skill-patches/             # /vault-save skill + optional daily/weekly patches
+skill-patches/             # /vault-save skill + its global auto-trigger
 eval/
   fixtures/                # test transcripts and mock API responses
   state/                   # runtime-only (gitignored): log.md, session-index.tsv

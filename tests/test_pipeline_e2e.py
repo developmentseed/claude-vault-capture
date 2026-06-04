@@ -201,6 +201,10 @@ class TestEdgeCaseSkips:
 
     def test_excluded_command(self, run_main, monkeypatch, temp_vault, tmp_path):
         monkeypatch.setenv("CAPTURE_MOCK_SDK", "1")
+        # EXCLUDED_COMMANDS is evaluated once at import (default empty), so setting
+        # the env var here would not re-trigger it — patch the resolved constant.
+        import curate
+        monkeypatch.setattr(curate, "EXCLUDED_COMMANDS", ["/daily-devlog"])
         tp = _write_jsonl(
             tmp_path / "excluded.jsonl",
             [

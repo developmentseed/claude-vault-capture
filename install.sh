@@ -51,16 +51,12 @@ if [[ "$SMOKE" == "--smoke-test-mode" ]]; then
     CLAUDE_DIR="${FAKE_HOME:-$HOME}/.claude"
     VAULT="${FAKE_VAULT:-$HOME/Obsidian}"
     SETTINGS="${FAKE_SETTINGS:-$CLAUDE_DIR/settings.json}"
-    DAILY_SKILL="${FAKE_DAILY_SKILL:-$CLAUDE_DIR/skills/daily-devlog/SKILL.md}"
-    WEEKLY_SKILL="${FAKE_WEEKLY_SKILL:-$CLAUDE_DIR/skills/weekly-recap/SKILL.md}"
     START_DATE_FILE="${FAKE_START_DATE_PATH:-$REPO/eval/state/start-date.txt}"
     CONFIG_FILE="${FAKE_CONFIG:-$REPO/capture.env}"
     GLOBAL_CLAUDE_MD="${FAKE_GLOBAL_CLAUDE_MD:-$CLAUDE_DIR/CLAUDE.md}"
 else
     CLAUDE_DIR="$HOME/.claude"
     SETTINGS="$CLAUDE_DIR/settings.json"
-    DAILY_SKILL="$CLAUDE_DIR/skills/daily-devlog/SKILL.md"
-    WEEKLY_SKILL="$CLAUDE_DIR/skills/weekly-recap/SKILL.md"
     START_DATE_FILE="$REPO/eval/state/start-date.txt"
     CONFIG_FILE="$REPO/capture.env"
     VAULT="$(resolve_vault)"
@@ -158,9 +154,11 @@ if ! python3 -m json.tool "$SETTINGS" >/dev/null 2>&1; then
 fi
 echo "Hook registered in settings.json"
 
-# ── 5. Inject skill patches (optional integrations) ───────────────────────────
-# Substitute the __VAULT_DIR__ / __REPO_DIR__ placeholders the patch files carry
-# with this user's resolved absolute paths.
+# ── 5. Placeholder substitution helper ────────────────────────────────────────
+# Substitute the __VAULT_DIR__ / __REPO_DIR__ placeholders that patch files carry
+# with this user's resolved absolute paths. Used by the vault-save skill below.
+# (Inbox-triage patches for /daily-devlog and /weekly-recap now live in a separate
+# extension — see the "Consuming captures" section of the README.)
 substitute_paths() {
     local content="$1"
     content="${content//__VAULT_DIR__/$VAULT}"
@@ -168,86 +166,8 @@ substitute_paths() {
     printf '%s' "$content"
 }
 
-inject_skill_patch() {
-    local skill_file="$1"
-    local patch_file="$2"
-    local begin_marker="$3"
-    local end_marker="$4"
-    local anchor="$5"
-
-    if [[ ! -f "$skill_file" ]]; then
-        echo "Note: $skill_file not found — skipping optional skill integration."
-        return
-    fi
-
-    # Optional integration: if the anchor is absent, skip rather than fail.
-    if ! grep -qF "$anchor" "$skill_file"; then
-        echo "Note: anchor '$anchor' not found in $skill_file — skipping."
-        echo "  To enable inbox triage here, add the anchor comment and re-run install.sh."
-        return
-    fi
-
-    # Backup
-    cp "$skill_file" "${skill_file}.bak"
-
-    local patch_content
-    patch_content="$(substitute_paths "$(<"$patch_file")")"
-
-    if grep -qF "$begin_marker" "$skill_file"; then
-        # Replace between markers (preserves content outside markers)
-        python3 - "$skill_file" "$begin_marker" "$end_marker" "$patch_content" <<'PYEOF'
-import sys, re
-path, begin, end, content = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
-text = open(path).read()
-new_block = f"{begin}\n{content}\n{end}"
-# Replace existing marker block
-pattern = re.escape(begin) + r".*?" + re.escape(end)
-updated = re.sub(pattern, new_block, text, flags=re.DOTALL)
-open(path, "w").write(updated)
-PYEOF
-    else
-        # First install: insert after anchor line
-        python3 - "$skill_file" "$anchor" "$begin_marker" "$end_marker" "$patch_content" <<'PYEOF'
-import sys
-path, anchor, begin, end, content = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
-lines = open(path).readlines()
-out = []
-for line in lines:
-    out.append(line)
-    if anchor in line:
-        out.append(f"\n{begin}\n{content}\n{end}\n")
-open(path, "w").write("".join(out))
-PYEOF
-    fi
-    echo "Patched $skill_file"
-}
-
-DAILY_PATCH="$REPO/skill-patches/daily-devlog.step-9.5.md"
-WEEKLY_PATCH="$REPO/skill-patches/weekly-recap.step-8.md"
 VAULT_SAVE_PATCH="$REPO/skill-patches/vault-save.md"
 VAULT_SAVE_TRIGGER_PATCH="$REPO/skill-patches/global-claude-md.vault-save-trigger.md"
-
-if [[ -f "$DAILY_PATCH" ]]; then
-    inject_skill_patch \
-        "$DAILY_SKILL" \
-        "$DAILY_PATCH" \
-        "<!-- BEGIN claude-vault-capture: step 9.5 -->" \
-        "<!-- END claude-vault-capture: step 9.5 -->" \
-        "<!-- anchor: after-confirmation-step -->"
-else
-    echo "WARNING: $DAILY_PATCH not found — skipping daily-devlog patch"
-fi
-
-if [[ -f "$WEEKLY_PATCH" ]]; then
-    inject_skill_patch \
-        "$WEEKLY_SKILL" \
-        "$WEEKLY_PATCH" \
-        "<!-- BEGIN claude-vault-capture: step 8 -->" \
-        "<!-- END claude-vault-capture: step 8 -->" \
-        "<!-- anchor: after-recap-writing -->"
-else
-    echo "WARNING: $WEEKLY_PATCH not found — skipping weekly-recap patch"
-fi
 
 # ── 5b. Install / update vault-save skill ────────────────────────────────────
 # vault-save is different from daily/weekly: the patch IS the full skill file,

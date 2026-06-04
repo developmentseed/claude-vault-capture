@@ -15,7 +15,7 @@ Evaluate two complementary capture paths from Claude Code sessions into the Obsi
 - **Path A — curated (approach 2):** A `SessionEnd` hook pipes each session's transcript to `claude-sonnet-4-6` with an extraction prompt. The model returns a durable artifact — a decision, runbook, spec, or non-obvious gotcha — or `null`. Non-null outputs land in `Inbox/auto/`.
 - **Path B — raw baseline (approach 3):** The same hook also pipes the transcript to `claude-haiku-4-5-20251001` with a lighter prompt that always returns a file: a topic line, a bullet summary of what happened, and source links. Outputs land in `Inbox/raw/`.
 
-Both paths share the **Inbox pattern**: every capture goes to `Inbox/`, never directly into structured folders (`notes_daily/`, `notes_weekly/`, `work/`, etc). Triage happens at review time via the existing `/daily-devlog` (same-day surface) and `/weekly-recap` (weekly sweep).
+Both paths share the **Inbox pattern**: every capture goes to `Inbox/`, never directly into structured folders (`notes_daily/`, `notes_weekly/`, `work/`, etc). Triage out of `Inbox/` is performed by external extensions that consume the Inbox contract (see §2.3) — not by this repo.
 
 ### Glossary
 
@@ -62,7 +62,7 @@ Decision rules of thumb:
      All semantic checks (threshold, dedup) run inside `curate.py` — nothing that requires reading or parsing the transcript happens in the shell script.
 - `hooks/curate.py`, running detached, then:
   1. Loads the transcript and runs `hooks/scrub.py` on it (see §7 — Secret scrubbing). The **scrubbed** transcript is what gets sent to the models; the original is never copied or persisted by this tool.
-  2. Checks whether any user turn invokes an excluded slash command. Current exclusions: `["/daily-devlog", "/weekly-recap"]` — these are the skill sessions that triage Inbox content; capturing them would be circular. Match is line-anchored (pattern: `^\s*<cmd>(\s|$)`) so mentions of the command in prose are not false-positives. If found, records `skip_reason_a = skip_reason_b = "excluded_command"` in the log entry and exits 0.
+  2. Checks whether any user turn invokes an excluded slash command. The exclusion list comes from `CAPTURE_EXCLUDED_COMMANDS` (comma-separated env var, sourced from `capture.env`) and is **empty by default** — the public pipeline captures everything. An Inbox-triage extension (see §2.3) sets it to its own workflow commands (e.g. `/daily-devlog,/weekly-recap`) so capturing the triage sessions themselves stays non-circular. Match is line-anchored (pattern: `^\s*<cmd>(\s|$)`) so mentions of the command in prose are not false-positives. If found, records `skip_reason_a = skip_reason_b = "excluded_command"` in the log entry and exits 0.
   3. Checks if the transcript is below the small-signal threshold (< 3 user turns OR < 1500 chars of user content). If so, records `skip_reason_a = skip_reason_b = "threshold"` in the log entry and exits 0. JSONL parsing runs here, in Python — not in the shell script.
   4. Estimates input token count as `len(scrubbed_transcript) // 4` (char-count proxy, not a real tokenizer). If this exceeds `CAPTURE_MAX_EST_TOKENS` (default: 50 000, configurable via env var), records `skip_reason_a = skip_reason_b = "token_limit"` and exits 0. At ~4 chars/token, 50 000 tokens ≈ 200 KB of transcript, corresponding to ~$0.15 input cost on Sonnet. Name prefix `EST_` signals this is a character-based estimate, not a real tokenizer count.
   5. Checks `eval/state/session-index.tsv` for the session_id. If found, exits 0 without writing — idempotent re-run protection that holds even after a capture has been promoted out of Inbox. If the index file is absent, writes unconditionally — accepting a potential duplicate on manual index deletion in exchange for eliminating a vault-wide file scan.
@@ -84,7 +84,7 @@ Decision rules of thumb:
 
 ### 2.2 `eval/state/log.md` schema
 
-One JSON object per line, appended by `curate.py` after each run. JSON-lines is append-safe and `jq`-able; weekly aggregation into `eval/state/metrics.md` is done manually or via `jq` — do not invent a custom parser.
+One JSON object per line, appended by `curate.py` after each run. JSON-lines is append-safe and `jq`-able; weekly aggregation (into the triage extension's own `metrics.md`) is done manually or via `jq` — do not invent a custom parser.
 
 **Fields:**
 
@@ -129,19 +129,24 @@ One JSON object per line, appended by `curate.py` after each run. JSON-lines is 
 
 ### 2.3 Skill integrations
 
-#### `/daily-devlog` — same-day Inbox surface
+#### Inbox triage — handled by an external extension
 
-Add a new **step 9.5** after the existing confirmation step:
-- **Before scanning Inbox:** check `eval/state/scrub-failures.md` for lines dated today. If any, display `⚠ N scrub rule(s) failed today — review eval/state/scrub-failures.md` prominently at the top of the step. A rule that stops firing means secrets may have flowed through unredacted; user should investigate before promoting anything.
-- Scan `Inbox/auto/` and `Inbox/raw/` for files whose frontmatter `created` date matches the target date.
-- Display them as `### Captured Artifacts (N curated, M raw)` with file path + one-line description from frontmatter.
-- Offer: "Promote any of these inline into today's note?" — default no. Nothing moves out of Inbox without explicit user approval.
-- **On promotion (user approves):**
-  - Determine today's devlog note stem using the deterministic convention: `notes_daily/YYYY-MM-DD` (see §8 resolved).
-  - In today's devlog note, locate or create a `## Captured Knowledge` section. Append one bullet: `- [[<artifact-stem>|<title>]] (<source>)`. The title is already sanitized by `curate.py` (§2.1 step 7), so the wikilink is safe to emit as-is.
-  - In the artifact file (still in `Inbox/`), locate or create a `## Referenced in` section. Append one bullet: `- [[<devlog-stem>|<date> devlog]]`.
-  - If either write fails, log the failure and do not block the promotion or the other write. Partial links are acceptable; blocked promotions are not.
-  - The artifact file is NOT moved during devlog promotion — it remains in `Inbox/` and stays eligible for the next weekly sweep.
+Triaging captured artifacts out of `Inbox/` (same-day surfacing, weekly sweep,
+promotion with backlinks, miss-rate tracking, the 25% crash alarm, and the
+`metrics.md` rollup) is **out of scope for this repo.** It is implemented by a
+separate extension — e.g. [`claude-vault-capture-private`](https://github.com/lhoupert/claude-vault-capture-private) —
+that patches the user's `/daily-devlog` and `/weekly-recap` skills and consumes this
+project's **Inbox contract**:
+
+- **Reads (read-only):** `Inbox/{auto,raw}/*.md` (artifacts + frontmatter) and the
+  gitignored runtime state `eval/state/{session-index.tsv,log.md,scrub-failures.md}`.
+- **Writes:** backlinks in the user's vault notes and the extension's *own* state
+  (never this repo's `eval/state/`).
+- **Config:** sets `CAPTURE_EXCLUDED_COMMANDS` in `capture.env` so the pipeline does
+  not capture the triage sessions themselves (kept non-circular).
+
+The public installer does **not** patch `/daily-devlog` or `/weekly-recap`. Only the
+`/vault-save` skill below is shipped here.
 
 #### `/vault-save` — on-demand document export
 
@@ -173,29 +178,13 @@ model: <model-id>
 - `skill-patches/vault-save.md` → copied to `~/.claude/skills/vault-save/SKILL.md`
 - `skill-patches/global-claude-md.vault-save-trigger.md` → injected into `~/.claude/CLAUDE.md`
 
-**Interaction with daily-devlog and weekly-recap:** because exported documents land in `Inbox/auto/`, step 9.5 (daily-devlog) and the weekly sweep (weekly-recap) already pick them up alongside session-captured artifacts. No changes to those skills are required. The `source: claude-code-export` field lets the user distinguish manually-exported docs from auto-captured ones during triage.
+**Interaction with the triage extension:** because exported documents land in `Inbox/auto/`, an Inbox-triage extension (§2.3) picks them up alongside session-captured artifacts. The `source: claude-code-export` field lets the user distinguish manually-exported docs from auto-captured ones during triage.
 
-#### `/weekly-recap` — weekly sweep
-
-Add a new **step 8** after writing the recap (steps 1–7 complete first):
-- List every `Inbox/auto/*.md` and `Inbox/raw/*.md` with `created` in the recap's date range.
-- For each file, show: source (curated/raw), tags, one-line description.
-- If the item list exceeds 10 files, offer a preamble before the item loop: `N items to review. [p]roceed item by item / [s]kip all (leave in Inbox) / [d]elete all raw`. The bulk options apply immediately and exit the loop.
-- **Present items one at a time** — show one item, wait for the user's decision, then advance. Do not list all items upfront.
-- Prompt per item: `[p]romote / [d]elete / [s]kip (stay in inbox)`.
-  - **Promote** → ask target folder (`work/<project>/`, `notes_patterns/`, `notes_runbooks/`, etc), move the file, record outcome. **Then:**
-    - Determine the current recap note stem using the deterministic convention: `notes_weekly/YYYY-Www` (ISO week, zero-padded — see §8 resolved).
-    - In the recap note, locate or create a `## Captured Knowledge` section. Append one bullet: `- [[<artifact-stem>|<title>]] (<source>, moved to <target-folder>)`.
-    - In the artifact file at its **new** location, locate or create a `## Referenced in` section. Append one bullet: `- [[<recap-stem>|week of <start-date> recap]]`.
-    - If this artifact was already promoted via devlog step 9.5 (it will have an existing `## Referenced in` entry pointing at a devlog note), append the recap backlink as a second bullet — do not replace the existing one.
-    - If either link write fails, log the failure and continue to the next item. A link-write failure does not undo the file move or count as a promotion failure.
-  - **Delete** → remove file.
-  - **Skip** → leave in place.
-- **Miss-rate check** (when promoting a raw file): read `eval/state/session-index.tsv`, find the line whose first column matches this file's `session_id` frontmatter, and check whether its second column (`path_a`) is anything other than `null`. If `path_a` is non-null — no miss. If `path_a` is `null`, or no matching line exists — increment the week's miss count in `eval/state/metrics.md`. If the index file does not exist, log a warning and do not count as a miss.
-- Append weekly counts to `eval/state/metrics.md`: week, path, captured, promoted, deleted, skipped, misses, no-capture-sessions.
-- **25% crash alarm:** compute `ratio = no_capture_sessions / (total_log_entries − threshold_skipped_entries − excluded_command_entries)`. Threshold and excluded-command skips are excluded from *both* numerator and denominator — they're expected behaviour. If `ratio > 0.25`, stop and investigate `hooks.log` before proceeding. A high no-capture rate indicates a crashing `curate.py` or misconfigured `$ANTHROPIC_API_KEY`, not expected behaviour.
-- **Pre-log crash gap check.** A `curate.py` that dies before its first log append is invisible to `log.md`. To catch this, the shell hook writes `SESSION_END_RECEIVED\t<session_id>\t<timestamp>` to `hooks.log` *before* backgrounding `curate.py` (§2.1 step 2). At each weekly review, compare `grep -c '^SESSION_END_RECEIVED' ~/.claude/hooks.log` against `wc -l eval/state/log.md`. A gap > 3 for the week indicates `curate.py` is crashing before it logs — investigate the `CURATE_ERROR` lines in `hooks.log` for the affected session ids. Small steady gaps (1–3) are acceptable: the log is shared with other hooks, and races between shell-side marker write and log rotation can produce off-by-one drift.
-- **Only then** close the inbox sweep; the recap is already written.
+> The detailed step-9.5 (daily) and step-8 (weekly) triage flows, the miss-rate
+> check, the `metrics.md` rollup, and the **25% crash alarm** previously specified
+> here now live in the external triage extension. The public pipeline still emits
+> everything those flows depend on — `eval/state/{log.md,session-index.tsv,scrub-failures.md}`
+> and the `no_capture_session` definition above — as a stable read-only contract.
 
 ## 3. Project structure
 
@@ -213,10 +202,9 @@ Add a new **step 8** after writing the recap (steps 1–7 complete first):
     curation-system-prompt.md          # Path A — strict extraction, may return null
     raw-baseline-prompt.md             # Path B — always summarizes, no judgment
   skill-patches/
-    daily-devlog.step-9.5.md           # canonical step-9.5 block, injected by install.sh
-    weekly-recap.step-8.md             # canonical step-8 block, injected by install.sh
     vault-save.md                      # /vault-save skill — copied to ~/.claude/skills/vault-save/SKILL.md
     global-claude-md.vault-save-trigger.md  # auto-trigger instructions — injected into ~/.claude/CLAUDE.md
+                                       # (daily/weekly triage patches live in the external extension)
   eval/
     .gitignore                         # ignores state/ (runtime-generated)
     fixtures/                          # checked-in test input
@@ -232,7 +220,6 @@ Add a new **step 8** after writing the recap (steps 1–7 complete first):
       expected/                        # golden structural outputs for live regression runs
     state/                             # RUNTIME — gitignored; created on first install
       log.md                           # per-session append log (JSON-lines, see §2.2)
-      metrics.md                       # per-week totals, miss count, no-capture count
       session-index.tsv                # session_id → path_a, path_b, date (fast dedup lookup)
       start-date.txt                   # written by install.sh on first run; eval window anchor
       scrub-failures.md                # persistent log of scrub rule compile/match failures (§7)
@@ -251,9 +238,8 @@ Add a new **step 8** after writing the recap (steps 1–7 complete first):
 ~/.claude/
   settings.json                        # SessionEnd hook registration (added by install.sh)
   CLAUDE.md                            # vault-save auto-trigger injected by install.sh (marker-bounded)
-  skills/daily-devlog/SKILL.md         # amended by install.sh (marker-bounded, idempotent)
-  skills/weekly-recap/SKILL.md         # amended by install.sh (marker-bounded, idempotent)
   skills/vault-save/SKILL.md           # created by install.sh (copied from skill-patches/vault-save.md)
+  skills/{daily-devlog,weekly-recap}/SKILL.md  # amended by the external triage extension, not this installer
   hooks.log                            # errors and redaction logs land here
 
 ~/Obsidian/loics_vault/
@@ -263,17 +249,17 @@ Add a new **step 8** after writing the recap (steps 1–7 complete first):
     raw/                               # Path B (raw baseline) lands here
 ```
 
-**Runtime state separation.** Everything under `eval/state/` is generated at runtime by `curate.py` and the skill patches. `eval/.gitignore` excludes `state/` — the directory is created on first install but never committed. Fixtures (`eval/fixtures/`) are checked-in test input; scripts at the `eval/` root are checked-in code. This boundary matters: a `git clean -fdx` or fresh clone should lose nothing irreplaceable from `state/` except the eval window anchor (which can be reset) and the running session-index (which can be rebuilt from vault frontmatter if needed).
+**Runtime state separation.** Everything under `eval/state/` is generated at runtime by `curate.py` (an external triage extension reads these files but writes its own state elsewhere). `eval/.gitignore` excludes `state/` — the directory is created on first install but never committed. Fixtures (`eval/fixtures/`) are checked-in test input; scripts at the `eval/` root are checked-in code. This boundary matters: a `git clean -fdx` or fresh clone should lose nothing irreplaceable from `state/` except the eval window anchor (which can be reset) and the running session-index (which can be rebuilt from vault frontmatter if needed).
 
-**Install strategy.** `install.sh` is idempotent. Skill amendments use marker-bounded blocks in the target `SKILL.md`:
+**Install strategy.** `install.sh` is idempotent. The `/vault-save` skill is written using marker-bounded blocks in the target `SKILL.md`:
 
 ```
-<!-- BEGIN claude-vault-capture: step 9.5 -->
-… canonical content from skill-patches/daily-devlog.step-9.5.md …
-<!-- END claude-vault-capture: step 9.5 -->
+<!-- BEGIN claude-vault-capture: vault-save -->
+… canonical content from skill-patches/vault-save.md …
+<!-- END claude-vault-capture: vault-save -->
 ```
 
-First install inserts the markers at the right anchor (after the existing confirmation step). Subsequent installs replace only the content between the markers — edits the user made outside the markers are preserved. `settings.json` hook registration is merged, not overwritten (installer parses, appends the entry if missing, writes back).
+First install writes the file; subsequent installs replace only the content between the markers — edits the user made outside the markers are preserved. (The external triage extension uses the same marker-bounded mechanism to amend `/daily-devlog` and `/weekly-recap`.) `settings.json` hook registration is merged, not overwritten (installer parses, appends the entry if missing, writes back).
 
 **Hook JSON shape and idempotency key.** The exact entry appended to `hooks.SessionEnd` in `~/.claude/settings.json`:
 
@@ -290,8 +276,6 @@ First install inserts the markers at the right anchor (after the existing confir
 ```
 
 The **command path** is the idempotency key: `install.sh` matches on the inner `command` value and replaces the whole entry if found, appends it if not. This means a user can re-run install after moving the repo — the old entry (different path) is removed and the new one is appended. `run-install-smoke.sh` (§6) covers this by running `install.sh` twice with a modified path between runs and asserting exactly one entry remains.
-
-**Anchor detection.** `daily-devlog.step-9.5.md` is inserted immediately after the line matching `<!-- anchor: after-confirmation-step -->` in the target SKILL.md. If this anchor comment is absent, `install.sh` exits 1 with an explicit error rather than guessing position. Same pattern for `weekly-recap.step-8.md` (anchor: `<!-- anchor: after-recap-writing -->`). **Adding both anchor comments to the target skill files is a pre-implementation task tracked in §9 Week-0 — `install.sh` will fail without them.**
 
 **Safety.** Before modifying `~/.claude/settings.json` or any SKILL.md, `install.sh`:
 1. Copies the target file to `<file>.bak` in the same directory.
@@ -395,7 +379,7 @@ redactions: {env_var: 0, jwt: 0, private_key: 0, token_prefix: 0, basic_auth_url
   - `test_threshold.py` — four cases against the `< 3 user turns OR < 1500 chars` check: (a) low turns, normal chars → skip; (b) normal turns, low chars → skip; (c) both low → skip; (d) both above threshold → passes. Verifies the OR: either clause alone is sufficient. Parse the resulting log entry to confirm `skip_reason_a == skip_reason_b == "threshold"` and both `path_*` are `null`.
   - `test_guards.py` — *project derivation*: create a `tmp_path` with `git init`; assert `cwd=<repo>` → project equals repo basename; assert `cwd=<tmp no-git>` → project is `"home"`. Submodule behaviour is documented as a known limitation in §4 and deferred — no unit test for that case (setting up a submodule in tmpdir is heavy-weight and out of scope for v0; revisit if misclassification appears in week-1 review). *Token guard*: pass a string of length `CAPTURE_MAX_EST_TOKENS * 4 + 1` chars; assert the log entry contains `skip_reason_a = skip_reason_b = "token_limit"` and no file is written.
   - `test_log_schema.py` — for each `skip_reason` variant (`excluded_command`, `threshold`, `token_limit`, `model_returned_null`, `timeout`, `malformed_json`, `error:*`) and the happy path, assert the emitted JSON line has the documented shape from §2.2: correct keys present, correct `null` vs value placement in paired fields, invariant holds (exactly one of `path_*` / `skip_reason_*` is non-null per path), `schema_version` and `timestamp` fields present.
-  - `test_excluded_commands.py` — unit tests for `uses_excluded_command()`: (a) a user turn starting with `/daily-devlog` triggers exclusion; (b) a user turn starting with `/weekly-recap` triggers exclusion; (c) prose mentioning `/daily-devlog` in the middle of a sentence does not trigger; (d) neither excluded command in any turn → returns False; (e) a session with an excluded command produces a log entry with `skip_reason_a = skip_reason_b = "excluded_command"` and no files written.
+  - `test_excluded_commands.py` — unit tests for `uses_excluded_command()`, driving the command list via the explicit parameter (the public default is empty): (a) a user turn starting with a configured command triggers exclusion; (b) prose mentioning the command mid-sentence does not trigger; (c) the **public default is empty**, so a `/daily-devlog` turn returns False; (d) custom command lists are honored. The e2e `test_excluded_command` (in `test_pipeline_e2e.py`) patches `EXCLUDED_COMMANDS` and asserts a session with an excluded command produces a log entry with `skip_reason_a = skip_reason_b = "excluded_command"` and no files written.
   - `test_load_transcript.py` — unit tests for `_load_transcript()` and `_extract_text()`: (a) a JSONL line whose `content` is a plain string is returned as-is; (b) a line whose `content` is a list of `{"type": "text", "text": "…"}` blocks is flattened to a string; (c) mixed list types (text blocks and other block types) flatten without raising; (d) lines with `type` field (Claude Code JSONL format) are handled alongside lines with `role` field; (e) malformed JSON lines are silently skipped; (f) empty content is returned as empty string, not a list.
   - `test_failure_isolation.py` — exercises the §5 "per-path failure isolation" invariant as observable behaviour, not just schema shape. Two cases, both using `CAPTURE_MOCK_SDK=1` with a mock entry that raises: (a) Path A call raises `RuntimeError("boom")` → assert `Inbox/raw/…md` exists, `Inbox/auto/` is empty for this session, log row has `path_a: null, skip_reason_a: "error:RuntimeError", path_b: "Inbox/raw/…", skip_reason_b: null`; (b) symmetric case with Path B raising. Verifies that an exception in one ThreadPoolExecutor worker is caught at the future-result boundary and does not abort the other path's write or the log append.
 - **Scrubber fixture (`fixtures/with-secrets.txt`):** synthetic transcript containing representative fake secrets — API key formats, `-----BEGIN … PRIVATE KEY-----` block, `.env`-style lines **placed mid-transcript to exercise MULTILINE**, URL basic auth, JWTs, `Authorization: Bearer …` headers. `test_scrub.py` asserts every planted secret is redacted.
@@ -405,8 +389,8 @@ redactions: {env_var: 0, jwt: 0, private_key: 0, token_prefix: 0, basic_auth_url
 
 **Mock mechanism (shared by smoke test and `run-fixtures.sh`):** `CAPTURE_MOCK_SDK=1` makes `curate.py` load `eval/fixtures/mock-responses.json` instead of calling the Anthropic API. The file maps fixture name → `{"path_a": <json-or-null>, "path_b": <json>}`. No monkeypatching required — `curate.py` checks the env var at startup and substitutes the canned responses. `run-fixtures.sh` sets `CAPTURE_MOCK_SDK=1` by default; unset it and set `CAPTURE_LIVE_TESTS=1` to run against the real API. Add a `"malformed_haiku"` key with a non-JSON string as `path_b` to exercise the malformed-JSON skip path; add a `"malformed_title"` key whose `path_a` contains `|` and `]]` in the title to exercise sanitization.
 
-- **Eval instrumentation:** `eval/state/log.md` and `eval/state/metrics.md` ARE the test of the system's usefulness. Review at weeks 1, 2, 4.
-- **Link insertion (skill integration, no network):** verify that on devlog promotion: (a) `## Captured Knowledge` is created in the devlog note if absent and a bullet is appended; (b) a second promotion of a different artifact appends a second bullet rather than overwriting; (c) `## Referenced in` is appended to the artifact at its `Inbox/` path; (d) an artifact whose original title contained `|` or `]]` produces a well-formed `[[stem|title]]` wikilink (i.e. sanitization upstream held). Verify that on recap promotion: (e) `## Referenced in` is written at the post-move path, not the pre-move `Inbox/` path; (f) an artifact with an existing devlog backlink accumulates the recap backlink as a second bullet without disturbing the first. Verify failure isolation: (g) if the devlog/recap note write fails, the artifact backlink write still proceeds, and the promotion itself still records as succeeded.
+- **Eval instrumentation:** `eval/state/log.md` (and the triage extension's `metrics.md`) ARE the test of the system's usefulness. Review at weeks 1, 2, 4.
+- **Link insertion (triage extension — verified there, not in this repo):** verify that on devlog promotion: (a) `## Captured Knowledge` is created in the devlog note if absent and a bullet is appended; (b) a second promotion of a different artifact appends a second bullet rather than overwriting; (c) `## Referenced in` is appended to the artifact at its `Inbox/` path; (d) an artifact whose original title contained `|` or `]]` produces a well-formed `[[stem|title]]` wikilink (i.e. sanitization upstream held). Verify that on recap promotion: (e) `## Referenced in` is written at the post-move path, not the pre-move `Inbox/` path; (f) an artifact with an existing devlog backlink accumulates the recap backlink as a second bullet without disturbing the first. Verify failure isolation: (g) if the devlog/recap note write fails, the artifact backlink write still proceeds, and the promotion itself still records as succeeded.
 
 ## 7. Boundaries
 
@@ -459,7 +443,7 @@ Transcripts can contain pasted secrets, env vars, tokens, or private keys. `scru
 - Fail-safe to availability: on `re.error` (malformed pattern — narrow catch, not broad `except Exception`), the rule is skipped AND a line is appended to `eval/state/scrub-failures.md` with `YYYY-MM-DD HH:MM:SS\t<rule_name>\t<exception>`. Programming errors in rule logic (e.g. `TypeError`) propagate normally. **Consequence:** if the `private_key` rule fails, a full private key block may be sent to the Anthropic API and written to the vault. This is an acceptable availability tradeoff but **must be visible**:
   - `hooks.log` records `SCRUB_RULE_FAILED: <rule_name>`.
   - `eval/state/scrub-failures.md` persists the failure across restarts.
-  - `/daily-devlog` step 9.5 reads `scrub-failures.md` and displays `⚠ N scrub rule(s) failed today` at the top of its output when entries match today's date. User acknowledges by manually clearing or archiving the file after reviewing what, if anything, leaked during the failure window.
+  - An Inbox-triage extension (§2.3) reads `scrub-failures.md` and displays `⚠ N scrub rule(s) failed today` at the top of its triage output when entries match the target date. The user acknowledges by manually clearing or archiving the file after reviewing what, if anything, leaked during the failure window. This repo only *writes* the file; surfacing it is the extension's job.
   
   `test_scrub.py` injects a malformed regex string as a rule and asserts: the skip is logged, no exception propagates, `scrub-failures.md` receives a new line, and the rest of the pipeline still runs.
 - Pure Python, unit-testable. No network, no SDK, no subprocess.
@@ -484,18 +468,18 @@ Detect via `git -C "$VAULT" rev-parse --is-inside-work-tree 2>/dev/null`. Do not
 - **Rotation for `scrub-failures.md` and `hooks.log`** — neither file rotates. `scrub-failures.md` grows by one line per failure per session (bounded by rule-count × session-count, small). `hooks.log` grows unboundedly and is shared with the pre-log-crash gap check (§2.3). At 4 weeks this is a non-issue. If the tool outlives the eval, decide at the week-4 retrospective: leave-as-is, manual archive on each weekly sweep, or `logrotate`-compatible config. Coupled with the `session-index.tsv` rotation question above — solve both together to keep state-file policy consistent.
 
 ### Resolved
-- **Note filename convention for wikilinks** — `notes_daily/YYYY-MM-DD.md` (e.g. `notes_daily/2026-04-23.md`) and `notes_weekly/YYYY-Www.md` (ISO week, zero-padded — e.g. `notes_weekly/2026-W14.md`). Skill patches derive the stem deterministically from the date, not by file listing. Required for step 9.5 and step 5.5 wikilink generation.
+- **Note filename convention for wikilinks** — `notes_daily/YYYY-MM-DD.md` (e.g. `notes_daily/2026-04-23.md`) and `notes_weekly/YYYY-Www.md` (ISO week, zero-padded — e.g. `notes_weekly/2026-W14.md`). The triage extension derives the stem deterministically from the date, not by file listing, when generating backlink wikilinks.
 - **Miss-rate measurement source** — `eval/state/session-index.tsv`, not a vault scan. Rationale: the index is the canonical record of what Path A *produced*; vault state drifts as the user deletes or moves curated artifacts during triage. The eval is evaluating the filter, so "did Path A produce an artifact" (index) is the right question, not "is a curated sibling still in the vault today" (vault scan).
 - **No-capture alarm ratio** — threshold-skipped entries are excluded from *both* numerator and denominator. A threshold skip is expected behaviour, not failure; counting it in either would bias the alarm. Ratio: `(both paths null AND skip_reason_a != "threshold") / (total log entries − threshold-skipped entries)`.
 - **`log.md` schema handling of skips/errors** — see §2.2 table. Each path has paired `path_*` and `skip_reason_*` fields; exactly one is non-null. Token/cost fields are `null` when the API was not called for that path.
 
 ## 9. Eval checklist
 
-- [ ] **Week 0 — pre-implementation prerequisites.** Add `<!-- anchor: after-confirmation-step -->` to `~/.claude/skills/daily-devlog/SKILL.md` and `<!-- anchor: before-recap-writing -->` to `~/.claude/skills/weekly-recap/SKILL.md` at the correct positions. `install.sh` exits 1 without these.
-- [ ] **Week 0 — install & first session.** Run `install.sh`; confirm `eval/state/` directory created, `start-date.txt` written, hook registered in `settings.json` as `{"matcher":"", "hooks":[{"type":"command","command":"…"}]}`, marker blocks inserted in both SKILL.md files, `eval/.gitignore` contains `state/`. First session produces one file in each of `Inbox/auto/` (or null) and `Inbox/raw/`. Verify frontmatter, cost logging, and idempotency (re-run on same session = no duplicates). Verify `~/.claude/hooks.log` contains a `SESSION_END_RECEIVED` line for the session. Verify the first `log.md` entry has `schema_version: 1` and an ISO-8601 `timestamp`. **Run `pytest tests/` — all must pass, including: multi-line `.env` redaction in `test_scrub.py`, cross-line private-key block redaction, Bearer-token redaction, title sanitization, all `skip_reason` variants (including `excluded_command`) in `test_log_schema.py`, excluded-command line-anchor matching in `test_excluded_commands.py`, list-typed content flattening in `test_load_transcript.py`, and Path A/B exception isolation in `test_failure_isolation.py`.** Manually run the hook once with a transcript containing a fake API key; confirm neither Inbox file contains the token.
+- [ ] **Week 0 — pre-implementation prerequisites.** Triage integration (anchors in `~/.claude/skills/{daily-devlog,weekly-recap}/SKILL.md`, plus `CAPTURE_EXCLUDED_COMMANDS`) is installed by the external triage extension, not this repo. Its installer skips gracefully if an anchor is absent — it never exits 1.
+- [ ] **Week 0 — install & first session.** Run `install.sh`; confirm `eval/state/` directory created, `start-date.txt` written, hook registered in `settings.json` as `{"matcher":"", "hooks":[{"type":"command","command":"…"}]}`, the `/vault-save` skill created at `~/.claude/skills/vault-save/SKILL.md`, `eval/.gitignore` contains `state/`. First session produces one file in each of `Inbox/auto/` (or null) and `Inbox/raw/`. Verify frontmatter, cost logging, and idempotency (re-run on same session = no duplicates). Verify `~/.claude/hooks.log` contains a `SESSION_END_RECEIVED` line for the session. Verify the first `log.md` entry has `schema_version: 1` and an ISO-8601 `timestamp`. **Run `pytest tests/` — all must pass, including: multi-line `.env` redaction in `test_scrub.py`, cross-line private-key block redaction, Bearer-token redaction, title sanitization, all `skip_reason` variants (including `excluded_command`) in `test_log_schema.py`, excluded-command line-anchor matching in `test_excluded_commands.py`, list-typed content flattening in `test_load_transcript.py`, and Path A/B exception isolation in `test_failure_isolation.py`.** Manually run the hook once with a transcript containing a fake API key; confirm neither Inbox file contains the token.
 - [ ] **Week 1 — mid-week review.** Review both Inboxes. Is Path A producing anything non-obvious vs Path B? Tune either prompt if obviously off. Review redaction counts in `eval/state/log.md` — if 0 across all sessions, either you're not pasting secrets (fine) or the rules are too narrow (fix). Check `eval/state/scrub-failures.md` — any entries mean a rule stopped running and secrets may have flowed through unredacted during that window.
-- [ ] **Week 2 — first full `/weekly-recap` sweep.** Record kept/discard/miss counts and no-capture sessions. Verify the 25% alarm would fire if the ratio exceeds threshold (manually simulate by seeding `log.md` with enough error entries if needed).
-- [ ] **Week 4 — retrospective.** Tally metrics from `eval/state/metrics.md`. Compare kept-rate and miss rate. Write decision note. Revisit the four open questions in §8 (cost ceiling, scrubber completeness, `log.md` extension, session-index rotation, backlink accumulation).
+- [ ] **Week 2 — first full `/weekly-recap` sweep** (via the triage extension). Record kept/discard/miss counts and no-capture sessions. Verify the 25% alarm would fire if the ratio exceeds threshold (manually simulate by seeding `log.md` with enough error entries if needed).
+- [ ] **Week 4 — retrospective.** Tally metrics from the triage extension's `metrics.md`. Compare kept-rate and miss rate. Write decision note. Revisit the four open questions in §8 (cost ceiling, scrubber completeness, `log.md` extension, session-index rotation, backlink accumulation).
 
 ---
 
