@@ -170,15 +170,15 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "anthropic", specifier = ">=0.40" },
-    { name = "claude-agent-sdk", marker = "extra == 'subscription'", specifier = ">=0.1.0" },
+    { name = "anthropic", specifier = "==0.105.2" },
+    { name = "claude-agent-sdk", marker = "extra == 'subscription'", specifier = "==0.2.89" },
 ]
 provides-extras = ["subscription"]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "pytest", specifier = ">=8.0" },
-    { name = "pyyaml", specifier = ">=6.0" },
+    { name = "pytest", specifier = "==9.0.3" },
+    { name = "pyyaml", specifier = "==6.0.3" },
 ]
 
 [[package]]
