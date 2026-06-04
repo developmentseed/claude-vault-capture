@@ -5,11 +5,13 @@ Automatically captures Claude Code sessions into an Obsidian vault on `SessionEn
 ## How to run tests
 
 ```bash
-uv run pytest          # all 105 tests, no network
+uv sync --extra dev    # one-time: install pytest + pyyaml into .venv
+uv run pytest          # 155 tests, no network (a 156th is opt-in live, skipped)
 CAPTURE_MOCK_SDK=1 uv run pytest -k failure_isolation   # specific test with mock SDK
+bash eval/run-install-smoke.sh   # installer smoke test (tmp dirs, no real writes)
 ```
 
-No test requires a live Anthropic API key. `CAPTURE_MOCK_SDK=1` substitutes `eval/fixtures/mock-responses.json`.
+No test requires a live Anthropic API key. `CAPTURE_MOCK_SDK=1` substitutes `eval/fixtures/mock-responses.json`. The live test runs only with `CAPTURE_LIVE_TESTS=1`. PyYAML is a **test-only** dependency — runtime parses frontmatter with stdlib regex and never imports `yaml`.
 
 ## Architecture
 
@@ -32,10 +34,10 @@ session-end-capture.sh  →  curate.py (backgrounded, nohup)
 - `prompts/curation-system-prompt.md` / `prompts/raw-baseline-prompt.md` — the only model-facing prompts; every change is a commit.
 - `eval/state/log.md` — JSON-lines eval log (gitignored); `eval/state/session-index.tsv` — dedup index.
 
-**Skill integrations** (installed by `install.sh`):
-- `/daily-devlog` patch (`skill-patches/daily-devlog.step-9.5.md`) — Inbox sweep step after daily confirmation.
-- `/weekly-recap` patch (`skill-patches/weekly-recap.step-8.md`) — Inbox sweep step after recap writing.
-- `/vault-save` skill (`skill-patches/vault-save.md`) — on-demand export of a Claude-generated markdown document to `Inbox/auto/`. No model call; Claude writes the file directly with structured frontmatter (`source: claude-code-export`). Auto-triggered when the user asks to save/export a document to their vault (via `~/.claude/CLAUDE.md` injection from `skill-patches/global-claude-md.vault-save-trigger.md`).
+**Skill integrations** (installed by `install.sh`). Patch files carry `__VAULT_DIR__` / `__REPO_DIR__` placeholders that the installer substitutes with the user's resolved absolute paths:
+- `/daily-devlog` patch (`skill-patches/daily-devlog.step-9.5.md`) — Inbox sweep step after daily confirmation. **Optional**: skipped (with a note) if the skill or its anchor is absent.
+- `/weekly-recap` patch (`skill-patches/weekly-recap.step-8.md`) — Inbox sweep step after recap writing. **Optional**, same as above.
+- `/vault-save` skill (`skill-patches/vault-save.md`) — on-demand export of a Claude-generated markdown document to `<vault>/claude-docs/`. No model call; Claude writes the file directly with structured frontmatter (`source: claude-code-export`). Always installed. Auto-triggered when the user asks to save/export a document to their vault (via `~/.claude/CLAUDE.md` injection from `skill-patches/global-claude-md.vault-save-trigger.md`).
 
 ## Invariants — never violate these
 
@@ -62,7 +64,8 @@ session-end-capture.sh  →  curate.py (backgrounded, nohup)
 
 ## Environment
 
-- Python 3.14, venv at `.venv/`. Run via `uv run` or `.venv/bin/python3`.
+- Python **3.11+** (floor: subscription-mode timeout relies on `asyncio.TimeoutError` aliasing the builtin, 3.11+). Dev venv is 3.14. `pyproject.toml` is the manifest; `uv sync` installs deps. Run via `uv run` or `.venv/bin/python3`.
+- **Paths are not hardcoded.** The repo root is derived from each file's own location (`__file__` / `${BASH_SOURCE[0]}`), so the checkout can live anywhere. The vault path comes from `CAPTURE_VAULT_DIR`, which `install.sh` resolves and writes to a gitignored `capture.env`; `session-end-capture.sh` sources that file and refuses to run (logs `CAPTURE_NOT_CONFIGURED`) if the vault is unset.
 - `ANTHROPIC_API_KEY` must be set (API-key mode). If absent in hook env, `session-end-capture.sh` reads `~/.claude_vault_token` as fallback.
 - `CAPTURE_USE_SUBSCRIPTION=1` — route both model calls through the Claude Agent SDK (Claude Code runtime) so they bill to a Max subscription instead of a metered key. Auth via `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`; hook falls back to `~/.claude_vault_oauth_token`). Requires `claude-agent-sdk` + the `claude` CLI. In this mode `cost_usd` is an *estimated* API-equivalent, not billed, and `max_tokens` is not enforced (runtime controls output). The model-call transport is the only difference — scrub/filter/parse/write are identical.
 - `CAPTURE_MOCK_SDK=1` — skip real API calls; use `eval/fixtures/mock-responses.json`.

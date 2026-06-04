@@ -2,6 +2,12 @@
 
 Status: draft · Owner: loic · Eval window: 4 weeks from first working hook
 
+> **Note on paths.** This spec predates the portability work and shows the
+> author's absolute paths (`~/Obsidian/loics_vault`, `~/DevDS/claude-vault-capture`).
+> The shipped code does not hardcode these: the repo root is derived from each
+> file's location, and the vault is configured via `CAPTURE_VAULT_DIR`. See the
+> top-level `README.md` for current install and configuration.
+
 ## 1. Objective
 
 Evaluate two complementary capture paths from Claude Code sessions into the Obsidian vault at `~/Obsidian/loics_vault/`, running **in parallel** for ~4 weeks. At the end of the window, pick a long-term approach based on kept-rate and subjective usefulness. Both paths fire automatically on `SessionEnd` — no manual triggering.
