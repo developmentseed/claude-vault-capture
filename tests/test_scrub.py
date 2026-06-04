@@ -44,7 +44,7 @@ class TestPrivateKey:
         assert counts["private_key"] >= 1
 
     def test_cross_line_no_dotall(self):
-        """Prove cross-line matching works via [\s\S] without re.DOTALL."""
+        r"""Prove cross-line matching works via [\s\S] without re.DOTALL."""
         from scrub import scrub
 
         text = "a\n-----BEGIN PRIVATE KEY-----\nSECRET\n-----END PRIVATE KEY-----\nb"
