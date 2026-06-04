@@ -7,6 +7,7 @@ files → log → index flow with model calls replayed from mock-responses.json
 Companion to tests/test_failure_isolation.py, which owns the token-preservation
 assertions on the error paths with inline mocks.
 """
+
 import json
 import pathlib
 import re
@@ -25,7 +26,9 @@ def _transcript(name: str) -> pathlib.Path:
 
 
 class TestFullPipeline:
-    def test_adr_worthy_writes_both_paths(self, run_main, mock_from_responses, temp_vault):
+    def test_adr_worthy_writes_both_paths(
+        self, run_main, mock_from_responses, temp_vault
+    ):
         """A+B both produce a file with correct filename + frontmatter."""
         mock_from_responses("adr-worthy")
         sid = "a1d2c3e4deadbeef0000"
@@ -57,7 +60,9 @@ class TestFullPipeline:
         assert e["skip_reason_a"] is None
         assert e["skip_reason_b"] is None
 
-    def test_debugging_only_skips_path_a(self, run_main, mock_from_responses, temp_vault):
+    def test_debugging_only_skips_path_a(
+        self, run_main, mock_from_responses, temp_vault
+    ):
         """path_a: null → no auto file, model_returned_null; path_b still writes."""
         mock_from_responses("debugging-only")
         entries = run_main(_transcript("debugging-only"), "dbb5678abcd00000111", "/tmp")
@@ -73,7 +78,9 @@ class TestFullPipeline:
         assert e["path_b"] is not None
         assert e["skip_reason_b"] is None
 
-    def test_malformed_title_is_sanitized(self, run_main, mock_from_responses, temp_vault):
+    def test_malformed_title_is_sanitized(
+        self, run_main, mock_from_responses, temp_vault
+    ):
         """Title with | [[ ]] # is sanitized in filename and frontmatter end-to-end."""
         mock_from_responses("malformed-title")
         run_main(_transcript("malformed-title"), "ac901234567abcde0001", "/tmp")
@@ -91,10 +98,14 @@ class TestFullPipeline:
         # the H1 heading is also the sanitized title
         assert "[[" not in text.split("---\n", 2)[2]
 
-    def test_malformed_haiku_path_a_still_writes(self, run_main, mock_from_responses, temp_vault):
+    def test_malformed_haiku_path_a_still_writes(
+        self, run_main, mock_from_responses, temp_vault
+    ):
         """path_b is a string → malformed_json skip; Path A decision still written."""
         mock_from_responses("malformed_haiku")
-        entries = run_main(_transcript("malformed_haiku"), "f00deadbeef12340002", "/tmp")
+        entries = run_main(
+            _transcript("malformed_haiku"), "f00deadbeef12340002", "/tmp"
+        )
 
         auto = list((temp_vault.vault_dir / "Inbox" / "auto").glob("*.md"))
         raw = list((temp_vault.vault_dir / "Inbox" / "raw").glob("*.md"))
@@ -109,7 +120,9 @@ class TestFullPipeline:
 
 
 class TestScrubbingStages:
-    def test_input_scrub_records_redactions(self, run_main, mock_from_responses, temp_vault):
+    def test_input_scrub_records_redactions(
+        self, run_main, mock_from_responses, temp_vault
+    ):
         """Pre-API scrub runs regardless of mocking — planted secrets are counted."""
         mock_from_responses("with-secrets")
         entries = run_main(_transcript("with-secrets"), "5ec0011223344ff00003", "/tmp")
@@ -140,16 +153,23 @@ class TestScrubbingStages:
                 "body": "We hardcoded Authorization: " + secret + " — bad idea.",
                 "source_links": [],
                 "tags": ["security"],
-                "tokens_in": 100, "tokens_out": 40, "cost_usd": 0.001,
+                "tokens_in": 100,
+                "tokens_out": 40,
+                "cost_usd": 0.001,
             },
         )
         monkeypatch.setattr(
             curate,
             "_call_path_b",
             lambda *a, **kw: {
-                "title": "Summary", "type": "session-summary",
-                "body": "nothing secret here", "source_links": [], "tags": [],
-                "tokens_in": 80, "tokens_out": 30, "cost_usd": 0.0001,
+                "title": "Summary",
+                "type": "session-summary",
+                "body": "nothing secret here",
+                "source_links": [],
+                "tags": [],
+                "tokens_in": 80,
+                "tokens_out": 30,
+                "cost_usd": 0.0001,
             },
         )
 
@@ -178,7 +198,9 @@ def _no_files(temp_vault) -> bool:
 class TestEdgeCaseSkips:
     """Each guard writes exactly one log entry, no files, and never calls a model."""
 
-    def test_empty_transcript_threshold(self, run_main, monkeypatch, temp_vault, tmp_path):
+    def test_empty_transcript_threshold(
+        self, run_main, monkeypatch, temp_vault, tmp_path
+    ):
         monkeypatch.setenv("CAPTURE_MOCK_SDK", "1")
         tp = tmp_path / "empty.jsonl"
         tp.write_text("")
@@ -188,11 +210,16 @@ class TestEdgeCaseSkips:
         assert entries[0]["skip_reason_a"] == "threshold"
         assert entries[0]["skip_reason_b"] == "threshold"
 
-    def test_assistant_only_threshold(self, run_main, monkeypatch, temp_vault, tmp_path):
+    def test_assistant_only_threshold(
+        self, run_main, monkeypatch, temp_vault, tmp_path
+    ):
         monkeypatch.setenv("CAPTURE_MOCK_SDK", "1")
         tp = _write_jsonl(
             tmp_path / "asst.jsonl",
-            [{"type": "assistant", "message": {"content": "a" * 2000}} for _ in range(3)],
+            [
+                {"type": "assistant", "message": {"content": "a" * 2000}}
+                for _ in range(3)
+            ],
         )
         entries = run_main(tp, "asst00112233aabb0006", "/tmp")
         assert _no_files(temp_vault)
@@ -204,6 +231,7 @@ class TestEdgeCaseSkips:
         # EXCLUDED_COMMANDS is evaluated once at import (default empty), so setting
         # the env var here would not re-trigger it — patch the resolved constant.
         import curate
+
         monkeypatch.setattr(curate, "EXCLUDED_COMMANDS", ["/my-journal"])
         tp = _write_jsonl(
             tmp_path / "excluded.jsonl",
@@ -256,7 +284,9 @@ class TestCredentialGuards:
         assert _no_files(temp_vault)
         assert not temp_vault.log_path.exists()
 
-    def test_subscription_mode_missing_token_exits(self, run_main, monkeypatch, temp_vault):
+    def test_subscription_mode_missing_token_exits(
+        self, run_main, monkeypatch, temp_vault
+    ):
         monkeypatch.delenv("CAPTURE_MOCK_SDK", raising=False)
         monkeypatch.setenv("CAPTURE_USE_SUBSCRIPTION", "1")
         monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
@@ -265,7 +295,9 @@ class TestCredentialGuards:
         assert exc.value.code == 0
         assert _no_files(temp_vault)
 
-    def test_missing_transcript_exits_gracefully(self, run_main, monkeypatch, temp_vault, tmp_path):
+    def test_missing_transcript_exits_gracefully(
+        self, run_main, monkeypatch, temp_vault, tmp_path
+    ):
         monkeypatch.setenv("CAPTURE_MOCK_SDK", "1")
         missing = tmp_path / "does-not-exist.jsonl"
         with pytest.raises(SystemExit) as exc:

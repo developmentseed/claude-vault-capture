@@ -11,6 +11,7 @@ frontmatter, skip cleanly (skip_reason_* is null), and report non-trivial token
 usage — a regression guard for the cache-token summation in
 _invoke_via_subscription.
 """
+
 import json
 import os
 import pathlib
@@ -58,16 +59,20 @@ def test_subscription_pipeline_writes_both_artifacts(tmp_path, monkeypatch):
     assert len(raw) == 1, "Path B (raw summary) should have written one artifact"
 
     # never escaped into the real vault
-    assert not (pathlib.Path.home() / "Obsidian").joinpath(
-        "loics_vault", "Inbox", "auto", auto[0].name
-    ).exists()
+    assert (
+        not (pathlib.Path.home() / "Obsidian")
+        .joinpath("loics_vault", "Inbox", "auto", auto[0].name)
+        .exists()
+    )
 
     fm_a = parse_frontmatter(auto[0].read_text())
     assert fm_a["source"] == "claude-code-curated"
     fm_b = parse_frontmatter(raw[0].read_text())
     assert fm_b["source"] == "claude-code-raw"
 
-    entry = json.loads([l for l in log_path.read_text().splitlines() if l.strip()][-1])
+    entry = json.loads(
+        [line for line in log_path.read_text().splitlines() if line.strip()][-1]
+    )
     assert entry["skip_reason_a"] is None
     assert entry["skip_reason_b"] is None
     # cache-token summation guard: subscription usage must be populated, non-trivial

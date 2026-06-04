@@ -1,4 +1,5 @@
 """Tests for _load_transcript and _extract_text — covers list content blocks."""
+
 import json
 import pathlib
 import sys
@@ -48,14 +49,17 @@ class TestExtractText:
 class TestLoadTranscript:
     def _write_jsonl(self, tmp_path, lines):
         p = tmp_path / "transcript.jsonl"
-        p.write_text("\n".join(json.dumps(l) for l in lines) + "\n")
+        p.write_text("\n".join(json.dumps(entry) for entry in lines) + "\n")
         return str(p)
 
     def test_plain_string_content(self, tmp_path):
-        path = self._write_jsonl(tmp_path, [
-            {"type": "user", "message": {"content": "hello"}},
-            {"type": "assistant", "message": {"content": "world"}},
-        ])
+        path = self._write_jsonl(
+            tmp_path,
+            [
+                {"type": "user", "message": {"content": "hello"}},
+                {"type": "assistant", "message": {"content": "world"}},
+            ],
+        )
         msgs = _load_transcript(path)
         assert msgs == [
             {"role": "user", "content": "hello"},
@@ -64,15 +68,33 @@ class TestLoadTranscript:
 
     def test_list_content_blocks(self, tmp_path):
         # This is the real-world case that was causing "sequence item 3: expected str"
-        path = self._write_jsonl(tmp_path, [
-            {"type": "user", "message": {"content": [
-                {"type": "text", "text": "run a command"},
-            ]}},
-            {"type": "assistant", "message": {"content": [
-                {"type": "text", "text": "sure"},
-                {"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "ls"}},
-            ]}},
-        ])
+        path = self._write_jsonl(
+            tmp_path,
+            [
+                {
+                    "type": "user",
+                    "message": {
+                        "content": [
+                            {"type": "text", "text": "run a command"},
+                        ]
+                    },
+                },
+                {
+                    "type": "assistant",
+                    "message": {
+                        "content": [
+                            {"type": "text", "text": "sure"},
+                            {
+                                "type": "tool_use",
+                                "id": "t1",
+                                "name": "Bash",
+                                "input": {"command": "ls"},
+                            },
+                        ]
+                    },
+                },
+            ],
+        )
         msgs = _load_transcript(path)
         assert msgs[0] == {"role": "user", "content": "run a command"}
         assert msgs[1] == {"role": "assistant", "content": "sure"}
@@ -80,28 +102,39 @@ class TestLoadTranscript:
     def test_skips_blank_lines_and_invalid_json(self, tmp_path):
         p = tmp_path / "transcript.jsonl"
         p.write_text(
-            json.dumps({"type": "user", "message": {"content": "hi"}}) + "\n"
+            json.dumps({"type": "user", "message": {"content": "hi"}})
+            + "\n"
             + "\n"
             + "not json\n"
-            + json.dumps({"type": "assistant", "message": {"content": "hey"}}) + "\n"
+            + json.dumps({"type": "assistant", "message": {"content": "hey"}})
+            + "\n"
         )
         msgs = _load_transcript(str(p))
         assert len(msgs) == 2
 
     def test_role_field_fallback(self, tmp_path):
-        path = self._write_jsonl(tmp_path, [
-            {"role": "user", "content": "direct role"},
-            {"role": "assistant", "content": "response"},
-        ])
+        path = self._write_jsonl(
+            tmp_path,
+            [
+                {"role": "user", "content": "direct role"},
+                {"role": "assistant", "content": "response"},
+            ],
+        )
         msgs = _load_transcript(path)
         assert msgs[0]["content"] == "direct role"
         assert msgs[1]["content"] == "response"
 
     def test_mixed_string_and_list_sessions(self, tmp_path):
-        path = self._write_jsonl(tmp_path, [
-            {"type": "user", "message": {"content": "plain string"}},
-            {"type": "user", "message": {"content": [{"type": "text", "text": "list block"}]}},
-        ])
+        path = self._write_jsonl(
+            tmp_path,
+            [
+                {"type": "user", "message": {"content": "plain string"}},
+                {
+                    "type": "user",
+                    "message": {"content": [{"type": "text", "text": "list block"}]},
+                },
+            ],
+        )
         msgs = _load_transcript(path)
         assert msgs[0]["content"] == "plain string"
         assert msgs[1]["content"] == "list block"

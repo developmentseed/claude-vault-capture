@@ -8,6 +8,7 @@ writes artifacts to Obsidian Inbox dirs, and appends to the eval state log.
 
 All errors go to stderr / ~/.claude/hooks.log — never to the user's terminal.
 """
+
 import sys
 import os
 import json
@@ -19,7 +20,6 @@ import datetime
 import unicodedata
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, Future
-from typing import Any
 
 # ── constants ──────────────────────────────────────────────────────────────────
 
@@ -43,7 +43,9 @@ STATE_DIR = REPO_ROOT / "eval" / "state"
 # sources before launching this script. The fallback below only applies when curate.py
 # is run by hand without config; session-end-capture.sh refuses to launch when the
 # vault is unconfigured, so the real hook path always provides an explicit value.
-VAULT_DIR = pathlib.Path(os.environ.get("CAPTURE_VAULT_DIR") or (pathlib.Path.home() / "Obsidian"))
+VAULT_DIR = pathlib.Path(
+    os.environ.get("CAPTURE_VAULT_DIR") or (pathlib.Path.home() / "Obsidian")
+)
 LOG_PATH = STATE_DIR / "log.md"
 INDEX_PATH = STATE_DIR / "session-index.tsv"
 HOOKS_LOG = pathlib.Path.home() / ".claude" / "hooks.log"
@@ -59,10 +61,21 @@ MAX_TOKENS_B = 800
 TIMEOUT_SECONDS = 30
 
 LOG_REQUIRED_KEYS = [
-    "schema_version", "timestamp", "date", "session_id",
-    "path_a", "path_b", "skip_reason_a", "skip_reason_b",
-    "tokens_in_a", "tokens_out_a", "tokens_in_b", "tokens_out_b",
-    "cost_usd_a", "cost_usd_b", "redactions",
+    "schema_version",
+    "timestamp",
+    "date",
+    "session_id",
+    "path_a",
+    "path_b",
+    "skip_reason_a",
+    "skip_reason_b",
+    "tokens_in_a",
+    "tokens_out_a",
+    "tokens_in_b",
+    "tokens_out_b",
+    "cost_usd_a",
+    "cost_usd_b",
+    "redactions",
 ]
 
 _STATE_LOCK = threading.Lock()  # guards both log.md and session-index.tsv
@@ -138,6 +151,7 @@ def make_filename(date_str: str, slug: str, session_id: str) -> str:
 
 # ── frontmatter rendering ──────────────────────────────────────────────────────
 
+
 def render_frontmatter(
     *,
     title: str,
@@ -174,6 +188,7 @@ def render_frontmatter(
 
 # ── dedup ──────────────────────────────────────────────────────────────────────
 
+
 def is_duplicate_session(
     session_id: str,
     *,
@@ -194,6 +209,7 @@ def is_duplicate_session(
 
 # ── threshold check ────────────────────────────────────────────────────────────
 
+
 def is_below_threshold(messages: list[dict]) -> bool:
     """< 3 user turns OR < 1500 chars of user content → True (skip)."""
     user_turns = [m for m in messages if m.get("role") == "user"]
@@ -210,7 +226,10 @@ def uses_excluded_command(
     Matches only when the command appears at the start of a line (possibly
     preceded by whitespace), so mentions of the command in prose are ignored.
     """
-    patterns = [re.compile(r"(?m)^\s*" + re.escape(cmd) + r"(?:\s|$)") for cmd in excluded_commands]
+    patterns = [
+        re.compile(r"(?m)^\s*" + re.escape(cmd) + r"(?:\s|$)")
+        for cmd in excluded_commands
+    ]
     for msg in messages:
         if msg.get("role") != "user":
             continue
@@ -222,6 +241,7 @@ def uses_excluded_command(
 
 # ── token guard ────────────────────────────────────────────────────────────────
 
+
 def is_above_token_limit(text: str) -> bool:
     """True if estimated token count exceeds CAPTURE_MAX_EST_TOKENS."""
     limit = int(os.environ.get("CAPTURE_MAX_EST_TOKENS", "50000"))
@@ -230,12 +250,15 @@ def is_above_token_limit(text: str) -> bool:
 
 # ── project derivation ─────────────────────────────────────────────────────────
 
+
 def derive_project(cwd: str) -> str:
     """Return nearest git repo basename, or 'home' if not in a repo."""
     try:
         result = subprocess.run(
             ["git", "-C", cwd, "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if result.returncode == 0:
             return pathlib.Path(result.stdout.strip()).name
@@ -245,6 +268,7 @@ def derive_project(cwd: str) -> str:
 
 
 # ── log building ───────────────────────────────────────────────────────────────
+
 
 def build_log_entry(
     *,
@@ -283,6 +307,7 @@ def build_log_entry(
 
 # ── concurrent-safe append ────────────────────────────────────────────────────
 
+
 def append_log(entry: dict, *, log_path: pathlib.Path = LOG_PATH) -> None:
     """Append one JSON line to log_path with cross-process flock + in-process lock."""
     line = json.dumps(entry) + "\n"
@@ -310,12 +335,15 @@ def _append_index(
             fcntl.flock(fh, fcntl.LOCK_EX)
             if fh.tell() == 0:
                 fh.write("# schema_version: 1\n")
-            fh.write(f"{session_id}\t{path_a or 'null'}\t{path_b or 'null'}\t{date_str}\n")
+            fh.write(
+                f"{session_id}\t{path_a or 'null'}\t{path_b or 'null'}\t{date_str}\n"
+            )
             fh.flush()
             fcntl.flock(fh, fcntl.LOCK_UN)
 
 
 # ── API call stubs (overridable in tests) ─────────────────────────────────────
+
 
 def _use_subscription() -> bool:
     """True when model calls should route through the Claude Max subscription
@@ -435,10 +463,14 @@ def _invoke_via_subscription(
 def _call_path_a(scrubbed_text: str, prompts_dir: pathlib.Path) -> dict | None:
     """Call claude-sonnet-4-6 with curation prompt. Returns artifact dict or None."""
     if os.environ.get("CAPTURE_MOCK_SDK") == "1":
-        raise RuntimeError("CAPTURE_MOCK_SDK=1 but no mock injected — call monkeypatched version")
+        raise RuntimeError(
+            "CAPTURE_MOCK_SDK=1 but no mock injected — call monkeypatched version"
+        )
 
     system_prompt = (prompts_dir / "curation-system-prompt.md").read_text()
-    text, tokens_in, tokens_out = _invoke_model(MODEL_A, MAX_TOKENS_A, system_prompt, scrubbed_text)
+    text, tokens_in, tokens_out = _invoke_model(
+        MODEL_A, MAX_TOKENS_A, system_prompt, scrubbed_text
+    )
     usage = {
         "tokens_in": tokens_in,
         "tokens_out": tokens_out,
@@ -461,10 +493,14 @@ def _call_path_a(scrubbed_text: str, prompts_dir: pathlib.Path) -> dict | None:
 def _call_path_b(scrubbed_text: str, prompts_dir: pathlib.Path) -> dict:
     """Call claude-haiku with raw baseline prompt. Always returns dict."""
     if os.environ.get("CAPTURE_MOCK_SDK") == "1":
-        raise RuntimeError("CAPTURE_MOCK_SDK=1 but no mock injected — call monkeypatched version")
+        raise RuntimeError(
+            "CAPTURE_MOCK_SDK=1 but no mock injected — call monkeypatched version"
+        )
 
     system_prompt = (prompts_dir / "raw-baseline-prompt.md").read_text()
-    text, tokens_in, tokens_out = _invoke_model(MODEL_B, MAX_TOKENS_B, system_prompt, scrubbed_text)
+    text, tokens_in, tokens_out = _invoke_model(
+        MODEL_B, MAX_TOKENS_B, system_prompt, scrubbed_text
+    )
     usage = {
         "tokens_in": tokens_in,
         "tokens_out": tokens_out,
@@ -494,6 +530,7 @@ def _estimate_cost_b(tokens_in: int, tokens_out: int) -> float:
 
 # ── file writing ───────────────────────────────────────────────────────────────
 
+
 def _write_artifact(
     path: pathlib.Path,
     *,
@@ -511,15 +548,23 @@ def _write_artifact(
     source_links: list[str],
 ) -> None:
     fm = render_frontmatter(
-        title=title, fm_type=fm_type, project=project,
-        tags=tags, source=source, session_id=session_id,
-        created=created, model=model, cost_usd=cost_usd,
+        title=title,
+        fm_type=fm_type,
+        project=project,
+        tags=tags,
+        source=source,
+        session_id=session_id,
+        created=created,
+        model=model,
+        cost_usd=cost_usd,
         redactions=redactions,
     )
     clean_title = sanitize_title(title)
     source_section = ""
     if source_links:
-        source_section = "\n## Source\n" + "\n".join(f"- {l}" for l in source_links) + "\n"
+        source_section = (
+            "\n## Source\n" + "\n".join(f"- {link}" for link in source_links) + "\n"
+        )
 
     content = f"{fm}\n# {clean_title}\n{body}\n{source_section}"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -527,6 +572,7 @@ def _write_artifact(
 
 
 # ── main capture pipeline ─────────────────────────────────────────────────────
+
 
 def run_capture(
     *,
@@ -562,11 +608,16 @@ def run_capture(
     if uses_excluded_command(transcript, EXCLUDED_COMMANDS):
         entry = build_log_entry(
             session_id=session_id,
-            path_a=None, skip_reason_a="excluded_command",
-            path_b=None, skip_reason_b="excluded_command",
-            tokens_in_a=None, tokens_out_a=None,
-            tokens_in_b=None, tokens_out_b=None,
-            cost_usd_a=None, cost_usd_b=None,
+            path_a=None,
+            skip_reason_a="excluded_command",
+            path_b=None,
+            skip_reason_b="excluded_command",
+            tokens_in_a=None,
+            tokens_out_a=None,
+            tokens_in_b=None,
+            tokens_out_b=None,
+            cost_usd_a=None,
+            cost_usd_b=None,
             redactions=redactions,
         )
         append_log(entry, log_path=log_path)
@@ -576,11 +627,16 @@ def run_capture(
     if is_below_threshold(transcript):
         entry = build_log_entry(
             session_id=session_id,
-            path_a=None, skip_reason_a="threshold",
-            path_b=None, skip_reason_b="threshold",
-            tokens_in_a=None, tokens_out_a=None,
-            tokens_in_b=None, tokens_out_b=None,
-            cost_usd_a=None, cost_usd_b=None,
+            path_a=None,
+            skip_reason_a="threshold",
+            path_b=None,
+            skip_reason_b="threshold",
+            tokens_in_a=None,
+            tokens_out_a=None,
+            tokens_in_b=None,
+            tokens_out_b=None,
+            cost_usd_a=None,
+            cost_usd_b=None,
             redactions=redactions,
         )
         append_log(entry, log_path=log_path)
@@ -590,11 +646,16 @@ def run_capture(
     if is_above_token_limit(scrubbed_text):
         entry = build_log_entry(
             session_id=session_id,
-            path_a=None, skip_reason_a="token_limit",
-            path_b=None, skip_reason_b="token_limit",
-            tokens_in_a=None, tokens_out_a=None,
-            tokens_in_b=None, tokens_out_b=None,
-            cost_usd_a=None, cost_usd_b=None,
+            path_a=None,
+            skip_reason_a="token_limit",
+            path_b=None,
+            skip_reason_b="token_limit",
+            tokens_in_a=None,
+            tokens_out_a=None,
+            tokens_in_b=None,
+            tokens_out_b=None,
+            cost_usd_a=None,
+            cost_usd_b=None,
             redactions=redactions,
         )
         append_log(entry, log_path=log_path)
@@ -604,11 +665,16 @@ def run_capture(
     if is_duplicate_session(session_id, index_path=index_path):
         entry = build_log_entry(
             session_id=session_id,
-            path_a=None, skip_reason_a="duplicate",
-            path_b=None, skip_reason_b="duplicate",
-            tokens_in_a=None, tokens_out_a=None,
-            tokens_in_b=None, tokens_out_b=None,
-            cost_usd_a=None, cost_usd_b=None,
+            path_a=None,
+            skip_reason_a="duplicate",
+            path_b=None,
+            skip_reason_b="duplicate",
+            tokens_in_a=None,
+            tokens_out_a=None,
+            tokens_in_b=None,
+            tokens_out_b=None,
+            cost_usd_a=None,
+            cost_usd_b=None,
             redactions=redactions,
         )
         append_log(entry, log_path=log_path)
@@ -748,11 +814,16 @@ def run_capture(
     # ── 13. append log ───────────────────────────────────────────────────────
     entry = build_log_entry(
         session_id=session_id,
-        path_a=path_a_rel, skip_reason_a=skip_reason_a,
-        path_b=path_b_rel, skip_reason_b=skip_reason_b,
-        tokens_in_a=tokens_in_a, tokens_out_a=tokens_out_a,
-        tokens_in_b=tokens_in_b, tokens_out_b=tokens_out_b,
-        cost_usd_a=cost_usd_a, cost_usd_b=cost_usd_b,
+        path_a=path_a_rel,
+        skip_reason_a=skip_reason_a,
+        path_b=path_b_rel,
+        skip_reason_b=skip_reason_b,
+        tokens_in_a=tokens_in_a,
+        tokens_out_a=tokens_out_a,
+        tokens_in_b=tokens_in_b,
+        tokens_out_b=tokens_out_b,
+        cost_usd_a=cost_usd_a,
+        cost_usd_b=cost_usd_b,
         redactions=redactions,
     )
     append_log(entry, log_path=log_path)
@@ -760,14 +831,17 @@ def run_capture(
 
 # ── CLI entry point ────────────────────────────────────────────────────────────
 
+
 def _extract_text(content) -> str:
     """Flatten content that may be a string or a list of content blocks."""
     if isinstance(content, str):
         return content
     if isinstance(content, list):
         parts = [
-            block.get("text", "") if isinstance(block, dict) and block.get("type") == "text"
-            else block if isinstance(block, str)
+            block.get("text", "")
+            if isinstance(block, dict) and block.get("type") == "text"
+            else block
+            if isinstance(block, str)
             else ""
             for block in content
         ]
@@ -789,7 +863,9 @@ def _load_transcript(transcript_path: str) -> list[dict]:
                     messages.append({"role": "user", "content": _extract_text(raw)})
                 elif obj.get("type") == "assistant" or obj.get("role") == "assistant":
                     raw = obj.get("message", {}).get("content", obj.get("content", ""))
-                    messages.append({"role": "assistant", "content": _extract_text(raw)})
+                    messages.append(
+                        {"role": "assistant", "content": _extract_text(raw)}
+                    )
             except json.JSONDecodeError:
                 continue
     return messages
@@ -805,7 +881,9 @@ def main():
     mock = os.environ.get("CAPTURE_MOCK_SDK") == "1"
     if _use_subscription():
         if not os.environ.get("CLAUDE_CODE_OAUTH_TOKEN") and not mock:
-            _log_error("CAPTURE_USE_SUBSCRIPTION=1 but CLAUDE_CODE_OAUTH_TOKEN not set — skipping capture")
+            _log_error(
+                "CAPTURE_USE_SUBSCRIPTION=1 but CLAUDE_CODE_OAUTH_TOKEN not set — skipping capture"
+            )
             sys.exit(0)
     elif not os.environ.get("ANTHROPIC_API_KEY") and not mock:
         _log_error("ANTHROPIC_API_KEY not set — skipping capture")

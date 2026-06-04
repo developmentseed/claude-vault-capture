@@ -1,8 +1,11 @@
 """Unit tests for project derivation from cwd + token-count ceiling."""
-import sys, pathlib, subprocess, os
+
+import sys
+import pathlib
+import subprocess
+
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent / "hooks"))
 
-import pytest
 from curate import derive_project, is_above_token_limit, CAPTURE_MAX_EST_TOKENS
 
 
@@ -43,5 +46,6 @@ class TestTokenCeiling:
     def test_env_override(self, monkeypatch):
         monkeypatch.setenv("CAPTURE_MAX_EST_TOKENS", "100")
         from curate import is_above_token_limit as f
+
         text = "a" * (100 * 4 + 4)  # +4 chars → one extra estimated token
         assert f(text) is True
