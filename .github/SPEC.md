@@ -2,6 +2,18 @@
 
 Status: draft · Owner: loic · Eval window: 4 weeks from first working hook
 
+> **Amendment 2026-06-04 — Path B retired.** The eval concluded: the raw Haiku
+> baseline (Path B → `Inbox/raw/`) was almost never the version kept and its
+> unique catches were mostly out-of-scope, so it was removed. Capture is now a
+> single curated path (Path A → `Inbox/auto/`) that retries once on a
+> non-deterministic null. The two-path design described below is **historical**;
+> where this spec mentions Path B, `Inbox/raw/`, `claude-haiku-4-5-20251001`,
+> per-path failure isolation, or `*_b` log fields, read it as superseded. The
+> log/index schema is now **version 2** (no `*_b` fields). See
+> `eval/experiments/FINDINGS.md` for the evidence and
+> `claude-docs/2026-06-04-dual-pipeline-capture-keep-path-a-retire-path-b.md`
+> for the decision record.
+
 > **Note on paths.** This spec predates the portability work and shows the
 > author's absolute paths (`~/Obsidian/loics_vault`, `~/DevDS/claude-vault-capture`).
 > The shipped code does not hardcode these: the repo root is derived from each

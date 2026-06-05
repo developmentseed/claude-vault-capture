@@ -38,4 +38,4 @@ null
 2. Source links: include only URLs explicitly mentioned in the session. Leave empty array if none.
 3. Tags: 2–5 lowercase topic tags derived from content. Never include `claude-code` or `curated` (added by the capture tool).
 4. Title must not contain `|`, `]]`, `[[`, `#`, or backtick.
-5. If uncertain between returning null and an artifact, return null — the raw baseline (Path B) always captures; Path A's value is precision, not recall.
+5. If uncertain between returning null and an artifact, return null — this path's value is precision, not recall. A non-deterministic null is retried once before the session is dropped, so a genuinely durable artifact still gets a second chance; reserve artifacts for genuinely reusable content.

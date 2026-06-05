@@ -4,12 +4,11 @@ Automatically turn your [Claude Code](https://claude.ai/code) sessions into note
 
 Nothing runs synchronously on session close (the hook returns in well under 200 ms); all model work is backgrounded. Secrets are scrubbed before anything is sent to a model and again before anything is written to disk.
 
-Two summaries are written per qualifying session:
+One curated summary is written per qualifying session:
 
-- **`Inbox/auto/`** — a *curated* artifact (Sonnet): a single decision, runbook, gotcha, or spec — or nothing, if the session was low-signal.
-- **`Inbox/raw/`** — a *raw* baseline (Haiku): always a short factual bullet summary.
+- **`Inbox/auto/`** — a *curated* artifact (Sonnet): a single decision, runbook, gotcha, or spec — or nothing, if the session was low-signal. A non-deterministic null is retried once before the session is dropped.
 
-> Why two? The author runs a 4-week A/B eval comparing how often each path produces something worth keeping. If you just want capture, both paths are useful as-is — see [The eval](#the-eval-optional) to opt out of one.
+> An earlier version also wrote a raw Haiku baseline to `Inbox/raw/`. A 4-week A/B eval found it didn't earn its keep (it was almost never the version kept, and its unique catches were mostly out-of-scope) — so it was retired. See [`eval/experiments/FINDINGS.md`](eval/experiments/FINDINGS.md).
 
 ## Prerequisites
 
@@ -34,7 +33,7 @@ choice from `capture.env`, or prompts you. Your vault path is written to a
 gitignored `capture.env` and never committed.
 
 The installer is idempotent — safe to re-run after updates. It:
-- Creates `<vault>/Inbox/{auto,raw}/` and `<vault>/claude-docs/`
+- Creates `<vault>/Inbox/auto/` and `<vault>/claude-docs/`
 - Registers the `SessionEnd` hook in `~/.claude/settings.json`
 - Writes `capture.env` with your `CAPTURE_VAULT_DIR`
 - Installs the `/vault-save` skill and its auto-trigger
@@ -65,10 +64,10 @@ Sessions are silently skipped when: fewer than 3 user turns, under 1500 chars of
 ## Tests
 
 ```bash
-uv run pytest          # 155 tests, no network, no API key needed
+uv run pytest          # 158 tests, no network, no API key needed
 ```
 
-A 156th test makes real model calls and is skipped unless `CAPTURE_LIVE_TESTS=1`.
+An opt-in live test makes real model calls and is skipped unless `CAPTURE_LIVE_TESTS=1`.
 The installer has its own smoke test: `bash eval/run-install-smoke.sh`.
 
 If you plan to contribute, install the git hooks so the same checks CI runs
@@ -96,10 +95,10 @@ the hook sources the whole file before launching the worker.
 
 ### Using your Claude Pro or Max subscription instead of an API key
 
-By default the two model calls hit the metered Messages API (`ANTHROPIC_API_KEY`).
-Set `CAPTURE_USE_SUBSCRIPTION=1` to route them through the Claude Code runtime
+By default the model call hits the metered Messages API (`ANTHROPIC_API_KEY`).
+Set `CAPTURE_USE_SUBSCRIPTION=1` to route it through the Claude Code runtime
 (via the [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview))
-and bill them to your Pro or Max subscription instead. Works the same on either
+and bill it to your Pro or Max subscription instead. Works the same on either
 plan — both share the rolling rate limit noted in the trade-offs below.
 
 **1. Install the transport and turn the flag on**
@@ -173,12 +172,13 @@ your own skills and vault layout without coupling them to the capture engine.
 An extension consumes:
 
 **Outputs** (the captured artifacts) in your vault:
-- `Inbox/auto/` — curated artifacts; `Inbox/raw/` — raw summaries.
+- `Inbox/auto/` — curated artifacts. (`Inbox/raw/` was retired with Path B and is
+  no longer written; extensions must tolerate its absence.)
 - Filenames: `YYYY-MM-DD-<slug>-<sid8>.md`. Frontmatter includes `session_id`,
   `created` (date), `source`, `type`, and `tags`.
 
 **Read-only runtime state** in the repo's gitignored `eval/state/`:
-- `session-index.tsv` — `<session_id>\t<path_a_or_null>\t<path_b_or_null>\t<date>`.
+- `session-index.tsv` — `<session_id>\t<path_a_or_null>\t<date>` (schema_version 2).
 - `log.md` — per-session JSON-lines (skip reasons, costs, token counts).
 - `scrub-failures.md` — dated lines when a scrub rule failed.
 
@@ -190,15 +190,16 @@ sessions, set **`CAPTURE_EXCLUDED_COMMANDS`** (comma-separated slash commands) i
 The `/vault-save` skill (on-demand export of a Claude-generated document to your
 vault) is always installed.
 
-## The eval (optional)
+## The eval
 
-The two paths exist to compare curated-vs-raw kept-rates over ~4 weeks. If you
-only want one, edit `hooks/curate.py`: Path A is `_call_path_a` (curated), Path B
-is `_call_path_b` (raw). Per-session costs and skip reasons land in
-`eval/state/log.md` (gitignored JSON-lines):
+Capture is a single curated path (`_call_path_a` in `hooks/curate.py`). It began
+as a two-path A/B eval (curated Sonnet vs raw Haiku baseline); the raw path was
+retired 2026-06-04 after the eval showed it didn't earn its keep — see
+[`eval/experiments/FINDINGS.md`](eval/experiments/FINDINGS.md). Per-session costs
+and skip reasons land in `eval/state/log.md` (gitignored JSON-lines):
 
 ```bash
-jq -r '[.date, .skip_reason_a, .skip_reason_b, .cost_usd_a, .cost_usd_b] | @tsv' eval/state/log.md
+jq -r '[.date, .skip_reason_a, .cost_usd_a] | @tsv' eval/state/log.md
 ```
 
 See `.github/SPEC.md` for the full specification and decision log.
@@ -211,8 +212,7 @@ hooks/
   curate.py                # full pipeline (scrub → filter → API → write → log)
   scrub.py / scrub_rules.py # secret scrubber (no network, pure stdlib)
 prompts/
-  curation-system-prompt.md  # Path A — Sonnet, may return null
-  raw-baseline-prompt.md     # Path B — Haiku, always summarizes
+  curation-system-prompt.md  # Path A — Sonnet, may return null (retried once)
 skill-patches/             # /vault-save skill + its global auto-trigger
 eval/
   fixtures/                # test transcripts and mock API responses

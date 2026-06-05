@@ -67,25 +67,21 @@ _MOCK_RESPONSES_PATH = (
 
 @pytest.fixture
 def mock_from_responses(monkeypatch):
-    """Factory: given a mock-responses.json key, monkeypatch the two path calls.
+    """Factory: given a mock-responses.json key, monkeypatch the curation call.
 
-    Loads eval/fixtures/mock-responses.json[name] and patches
-    curate._call_path_a / curate._call_path_b to replay the recorded artifacts:
+    Loads eval/fixtures/mock-responses.json[name] and patches curate._call_path_a
+    to replay the recorded artifact (Path B was retired 2026-06-04, so only the
+    path_a entry is used):
 
       - dict entry      → returned as-is (entries already carry tokens_in/out +
                           cost_usd — they are NOT backfilled).
       - null for path_a → returns None (run_capture maps to model_returned_null;
                           a null has no usage data, so none is synthesized).
-      - string for path_b (the malformed_haiku case) → raises json.JSONDecodeError,
-                          mirroring real _call_path_b. No .usage is attached — the
-                          string carries no token data, so token preservation is
-                          not assertable here (that case is owned by
-                          tests/test_failure_isolation.py).
 
     This is the fixture-driven sibling of the inline-mock pattern in
-    tests/test_failure_isolation.py:_run_with_mocks. Use this when replaying the
-    recorded mock-responses.json artifacts; use the inline pattern when a test
-    needs a bespoke mock (e.g. a secret in the body, or exc.usage assertions).
+    tests/test_failure_isolation.py. Use this when replaying the recorded
+    mock-responses.json artifacts; use the inline pattern when a test needs a
+    bespoke mock (e.g. a secret in the body, or exc.usage assertions).
     """
     import curate
 
@@ -96,20 +92,13 @@ def mock_from_responses(monkeypatch):
         monkeypatch.setenv("CAPTURE_MOCK_SDK", "1")
 
         a = entry["path_a"]
-        b = entry["path_b"]
 
         def _mock_a(*args, **kwargs):
             if a is None:
                 return None
             return dict(a)
 
-        def _mock_b(*args, **kwargs):
-            if isinstance(b, str):
-                raise json.JSONDecodeError("malformed path_b", b, 0)
-            return dict(b)
-
         monkeypatch.setattr(curate, "_call_path_a", _mock_a)
-        monkeypatch.setattr(curate, "_call_path_b", _mock_b)
         return entry
 
     return _install
@@ -123,7 +112,6 @@ def temp_vault(tmp_path):
     """
     vault_dir = tmp_path / "vault"
     (vault_dir / "Inbox" / "auto").mkdir(parents=True)
-    (vault_dir / "Inbox" / "raw").mkdir(parents=True)
 
     return SimpleNamespace(
         vault_dir=vault_dir,

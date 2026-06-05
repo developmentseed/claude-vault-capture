@@ -26,20 +26,17 @@ def _transcript(name: str) -> pathlib.Path:
 
 
 class TestFullPipeline:
-    def test_adr_worthy_writes_both_paths(
+    def test_adr_worthy_writes_artifact(
         self, run_main, mock_from_responses, temp_vault
     ):
-        """A+B both produce a file with correct filename + frontmatter."""
+        """A curated artifact produces a file with correct filename + frontmatter."""
         mock_from_responses("adr-worthy")
         sid = "a1d2c3e4deadbeef0000"
         entries = run_main(_transcript("adr-worthy"), sid, "/tmp")
 
         auto = list((temp_vault.vault_dir / "Inbox" / "auto").glob("*.md"))
-        raw = list((temp_vault.vault_dir / "Inbox" / "raw").glob("*.md"))
         assert len(auto) == 1
-        assert len(raw) == 1
         assert FILENAME_RE.match(auto[0].name), auto[0].name
-        assert FILENAME_RE.match(raw[0].name), raw[0].name
         assert auto[0].name.endswith(f"-{sid[:8]}.md")
 
         fm_a = parse_frontmatter(auto[0].read_text())
@@ -48,35 +45,22 @@ class TestFullPipeline:
         assert fm_a["session_id"] == sid
         assert fm_a["model"] == "claude-sonnet-4-6"
 
-        fm_b = parse_frontmatter(raw[0].read_text())
-        assert fm_b["source"] == "claude-code-raw"
-        assert fm_b["type"] == "session-summary"
-        assert fm_b["model"] == "claude-haiku-4-5-20251001"
-
         assert len(entries) == 1
         e = entries[0]
         assert e["path_a"] == f"Inbox/auto/{auto[0].name}"
-        assert e["path_b"] == f"Inbox/raw/{raw[0].name}"
         assert e["skip_reason_a"] is None
-        assert e["skip_reason_b"] is None
 
-    def test_debugging_only_skips_path_a(
-        self, run_main, mock_from_responses, temp_vault
-    ):
-        """path_a: null → no auto file, model_returned_null; path_b still writes."""
+    def test_debugging_only_skips(self, run_main, mock_from_responses, temp_vault):
+        """path_a: null → no auto file, model_returned_null."""
         mock_from_responses("debugging-only")
         entries = run_main(_transcript("debugging-only"), "dbb5678abcd00000111", "/tmp")
 
         auto = list((temp_vault.vault_dir / "Inbox" / "auto").glob("*.md"))
-        raw = list((temp_vault.vault_dir / "Inbox" / "raw").glob("*.md"))
         assert auto == []
-        assert len(raw) == 1
 
         e = entries[0]
         assert e["skip_reason_a"] == "model_returned_null"
         assert e["path_a"] is None
-        assert e["path_b"] is not None
-        assert e["skip_reason_b"] is None
 
     def test_malformed_title_is_sanitized(
         self, run_main, mock_from_responses, temp_vault
@@ -97,26 +81,6 @@ class TestFullPipeline:
             assert bad not in title, f"{bad!r} survived in title {title!r}"
         # the H1 heading is also the sanitized title
         assert "[[" not in text.split("---\n", 2)[2]
-
-    def test_malformed_haiku_path_a_still_writes(
-        self, run_main, mock_from_responses, temp_vault
-    ):
-        """path_b is a string → malformed_json skip; Path A decision still written."""
-        mock_from_responses("malformed_haiku")
-        entries = run_main(
-            _transcript("malformed_haiku"), "f00deadbeef12340002", "/tmp"
-        )
-
-        auto = list((temp_vault.vault_dir / "Inbox" / "auto").glob("*.md"))
-        raw = list((temp_vault.vault_dir / "Inbox" / "raw").glob("*.md"))
-        assert len(auto) == 1  # real-pipeline failure isolation
-        assert raw == []
-
-        e = entries[0]
-        assert e["skip_reason_b"] == "malformed_json"
-        assert e["path_b"] is None
-        assert e["path_a"] is not None
-        assert e["skip_reason_a"] is None
 
 
 class TestScrubbingStages:
@@ -158,20 +122,6 @@ class TestScrubbingStages:
                 "cost_usd": 0.001,
             },
         )
-        monkeypatch.setattr(
-            curate,
-            "_call_path_b",
-            lambda *a, **kw: {
-                "title": "Summary",
-                "type": "session-summary",
-                "body": "nothing secret here",
-                "source_links": [],
-                "tags": [],
-                "tokens_in": 80,
-                "tokens_out": 30,
-                "cost_usd": 0.0001,
-            },
-        )
 
         run_main(_transcript("adr-worthy"), "1eaf778899aabbcc0004", "/tmp")
 
@@ -189,10 +139,7 @@ def _write_jsonl(path: pathlib.Path, rows: list[dict]) -> pathlib.Path:
 
 
 def _no_files(temp_vault) -> bool:
-    return (
-        list((temp_vault.vault_dir / "Inbox" / "auto").glob("*.md")) == []
-        and list((temp_vault.vault_dir / "Inbox" / "raw").glob("*.md")) == []
-    )
+    return list((temp_vault.vault_dir / "Inbox" / "auto").glob("*.md")) == []
 
 
 class TestEdgeCaseSkips:
@@ -208,7 +155,6 @@ class TestEdgeCaseSkips:
         assert _no_files(temp_vault)
         assert len(entries) == 1
         assert entries[0]["skip_reason_a"] == "threshold"
-        assert entries[0]["skip_reason_b"] == "threshold"
 
     def test_assistant_only_threshold(
         self, run_main, monkeypatch, temp_vault, tmp_path
@@ -224,7 +170,6 @@ class TestEdgeCaseSkips:
         entries = run_main(tp, "asst00112233aabb0006", "/tmp")
         assert _no_files(temp_vault)
         assert entries[0]["skip_reason_a"] == "threshold"
-        assert entries[0]["skip_reason_b"] == "threshold"
 
     def test_excluded_command(self, run_main, monkeypatch, temp_vault, tmp_path):
         monkeypatch.setenv("CAPTURE_MOCK_SDK", "1")
@@ -244,7 +189,6 @@ class TestEdgeCaseSkips:
         entries = run_main(tp, "excl00112233aabb0007", "/tmp")
         assert _no_files(temp_vault)
         assert entries[0]["skip_reason_a"] == "excluded_command"
-        assert entries[0]["skip_reason_b"] == "excluded_command"
 
     def test_token_limit(self, run_main, monkeypatch, temp_vault):
         """Above-threshold transcript + tiny ceiling → token_limit (not threshold)."""
@@ -253,7 +197,6 @@ class TestEdgeCaseSkips:
         entries = run_main(_transcript("adr-worthy"), "tok00112233aabb0008", "/tmp")
         assert _no_files(temp_vault)
         assert entries[0]["skip_reason_a"] == "token_limit"
-        assert entries[0]["skip_reason_b"] == "token_limit"
 
     def test_duplicate_session(self, run_main, mock_from_responses, temp_vault):
         """Second capture of the same session_id writes nothing new and logs duplicate."""
@@ -266,9 +209,7 @@ class TestEdgeCaseSkips:
         entries = run_main(_transcript("adr-worthy"), sid, "/tmp")
         # still exactly one file per path — no second artifact
         assert len(list((temp_vault.vault_dir / "Inbox" / "auto").glob("*.md"))) == 1
-        assert len(list((temp_vault.vault_dir / "Inbox" / "raw").glob("*.md"))) == 1
         assert entries[-1]["skip_reason_a"] == "duplicate"
-        assert entries[-1]["skip_reason_b"] == "duplicate"
 
 
 class TestCredentialGuards:

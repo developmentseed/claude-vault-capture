@@ -68,6 +68,4 @@ def test_run_capture_maps_api_timeout_to_skip_reason(monkeypatch, temp_vault):
         if line.strip()
     ]
     assert len(entries) == 1
-    # Both paths share the timing-out transport, so both get the timeout reason.
     assert entries[0]["skip_reason_a"] == "timeout"
-    assert entries[0]["skip_reason_b"] == "timeout"
