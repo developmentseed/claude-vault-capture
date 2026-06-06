@@ -112,6 +112,23 @@ class TestToolResults:
         out = render_transcript([_msg("user", "", blocks)])
         assert "boom failed" in out
 
+    def test_image_only_result_emits_no_out_line(self):
+        # A screenshot/image tool_result has no text content — it must not
+        # inject a blank "[OUT] " marker line into the prompt.
+        blocks = [
+            {
+                "type": "tool_result",
+                "content": [{"type": "image", "source": {"data": "..."}}],
+            }
+        ]
+        out = render_transcript([_msg("user", "", blocks)])
+        assert "[OUT]" not in out
+
+    def test_empty_error_result_emits_no_line(self):
+        blocks = [{"type": "tool_result", "is_error": True, "content": "   "}]
+        out = render_transcript([_msg("user", "", blocks)])
+        assert "[ERROR]" not in out
+
 
 class TestBudget:
     def test_budget_stops_tool_use_but_keeps_text_and_errors(self, monkeypatch):

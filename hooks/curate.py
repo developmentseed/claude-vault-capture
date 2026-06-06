@@ -625,7 +625,9 @@ def render_transcript(messages: list[dict]) -> str:
                     parts.append(rendered)
                     used += len(rendered)
             elif btype == "tool_result":
-                text = _tool_result_text(b)
+                text = _tool_result_text(b).strip()
+                if not text:
+                    continue  # nothing to surface (e.g. image-only / empty result)
                 if b.get("is_error"):
                     rendered = f"[ERROR] {text[:_ERROR_CAP]}"
                     parts.append(rendered)  # errors always kept
