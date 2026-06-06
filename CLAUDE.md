@@ -27,7 +27,7 @@ No test requires a live Anthropic API key. `CAPTURE_MOCK_SDK=1` substitutes `eva
 ```
 session-end-capture.sh  →  curate.py (backgrounded, nohup)
                                │
-                  scrub → excluded_cmd? → threshold? → token_limit? → dedup?
+          render tool I/O → scrub → excluded_cmd? → threshold? → token_limit? → dedup?
                                │
                         Path A: Sonnet → strip fences → parse JSON (or null,
                                 retried once) → curated artifact
@@ -37,7 +37,7 @@ session-end-capture.sh  →  curate.py (backgrounded, nohup)
 
 **Key files:**
 - `hooks/session-end-capture.sh` — entry point; reads stdin JSON, logs `SESSION_END_RECEIVED`, backgrounds `curate.py`. Returns in <200ms.
-- `hooks/curate.py` — full pipeline. All imports at function scope for fast startup.
+- `hooks/curate.py` — full pipeline. All imports at function scope for fast startup. `render_transcript()` builds the model input: text plus compact `[TOOL]`/`[OUT]`/`[ERROR]` lines (commands, edit diffs, output heads, failures), budgeted so the enriched transcript stays under the token guard. Filters read the text-only `content`; only the model input is enriched.
 - `hooks/scrub.py` + `hooks/scrub_rules.py` — pure stdlib secret scrubber; runs twice (before API call, after).
 - `prompts/curation-system-prompt.md` — the only model-facing prompt; every change is a commit.
 - `eval/state/log.md` — JSON-lines eval log (gitignored); `eval/state/session-index.tsv` — dedup index.
@@ -78,6 +78,8 @@ session-end-capture.sh  →  curate.py (backgrounded, nohup)
 - `CAPTURE_USE_SUBSCRIPTION=1` — route the curation model call through the Claude Agent SDK (Claude Code runtime) so it bills to a Pro/Max subscription instead of a metered key. Auth via `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`; hook falls back to `~/.claude_vault_oauth_token`). Because `capture.env` is sourced with `set -a`, you can resolve the token from the **macOS Keychain** instead of a plaintext file — see the README's "Using your Claude Pro or Max subscription" section for the `security add-generic-password` + `find-generic-password` recipe. Requires `claude-agent-sdk` + the `claude` CLI. In this mode `cost_usd` is an *estimated* API-equivalent, not billed, and `max_tokens` is not enforced (runtime controls output). The model-call transport is the only difference — scrub/filter/parse/write are identical.
 - `CAPTURE_MOCK_SDK=1` — skip real API calls; use `eval/fixtures/mock-responses.json`.
 - `CAPTURE_MAX_EST_TOKENS` — override token ceiling (default 50 000).
+- `CAPTURE_TOOL_CHARS_BUDGET` — max chars of rendered tool activity added to the curator input (default 30 000). Once spent, further `[TOOL]`/`[OUT]` lines are dropped; `[ERROR]` lines are always kept. Caps the enrichment so it can't trip the token guard. Measured impact: ~+$0.015/session input (output unchanged); see `eval/experiments/tool_enrichment_cost.py`.
+- `CAPTURE_SUCCESS_HEAD_CHARS` — chars of each successful tool result included as an `[OUT]` head (default 200; set `0` to drop successful output entirely and keep only commands + errors).
 
 ## What NOT to do
 
