@@ -545,6 +545,101 @@ def _write_artifact(
     path.write_text(content, encoding="utf-8")
 
 
+# ── transcript rendering for the model ───────────────────────────────────────
+
+_ROLE_MAP = {"user": "[USER]", "assistant": "[ASSISTANT]"}
+
+# Per-block render caps (chars). Bash commands and edit diffs are the high-signal,
+# low-volume parts; error results are kept near-whole; successful output is headed.
+_BASH_CMD_CAP = 300
+_EDIT_DIFF_CAP = 200
+_OTHER_INPUT_CAP = 120
+_ERROR_CAP = 600
+
+
+def _tool_result_text(block: dict) -> str:
+    """Flatten a tool_result's content (str or list of text blocks) to text."""
+    c = block.get("content", "")
+    if isinstance(c, list):
+        return "\n".join(
+            b.get("text", "")
+            for b in c
+            if isinstance(b, dict) and b.get("type") == "text"
+        )
+    return c if isinstance(c, str) else ""
+
+
+def _render_tool_use(block: dict) -> str:
+    """Render one tool_use block as a compact `[TOOL] …` line."""
+    name = block.get("name", "tool")
+    inp = block.get("input", {}) or {}
+    if name == "Bash":
+        return f"[TOOL] Bash: {str(inp.get('command', ''))[:_BASH_CMD_CAP]}"
+    if name in ("Edit", "MultiEdit"):
+        diff = f"{inp.get('old_string', '')} -> {inp.get('new_string', '')}"
+        return f"[TOOL] {name}: {inp.get('file_path', '')} | {diff[:_EDIT_DIFF_CAP]}"
+    if name == "Write":
+        body = str(inp.get("content", ""))[:_EDIT_DIFF_CAP]
+        return f"[TOOL] Write: {inp.get('file_path', '')} | {body}"
+    # Any other tool: name + a compact slice of its input for context.
+    return f"[TOOL] {name}: {json.dumps(inp, default=str)[:_OTHER_INPUT_CAP]}"
+
+
+def render_transcript(messages: list[dict]) -> str:
+    """Build the curator's input text from loaded messages.
+
+    Each message's text becomes `[ROLE]: <text>`. When raw content `blocks` are
+    present (list-form transcript lines), tool activity is surfaced too — this is
+    what the model never used to see:
+      - tool_use            → `[TOOL] <Name>: <command/diff/input>`
+      - tool_result success → `[OUT] <head>` (CAPTURE_SUCCESS_HEAD_CHARS; 0 = drop)
+      - tool_result error   → `[ERROR] <text>` (always kept, prioritised over budget)
+
+    Tool-derived chars accumulate against CAPTURE_TOOL_CHARS_BUDGET; once spent,
+    further tool_use / [OUT] lines are dropped (text and [ERROR] still emitted), so
+    the enriched transcript stays under the token guard on pathological runs. The
+    text-only `content` the filters read is untouched — only the model input grows.
+    """
+    budget = int(os.environ.get("CAPTURE_TOOL_CHARS_BUDGET", "30000"))
+    head = int(os.environ.get("CAPTURE_SUCCESS_HEAD_CHARS", "200"))
+    used = 0
+    lines: list[str] = []
+
+    for m in messages:
+        role = _ROLE_MAP.get(m.get("role", ""), "[UNKNOWN]")
+        blocks = m.get("blocks")
+        if not isinstance(blocks, list):
+            lines.append(f"{role}: {m.get('content', '')}")
+            continue
+
+        parts: list[str] = []
+        for b in blocks:
+            if not isinstance(b, dict):
+                continue
+            btype = b.get("type")
+            if btype == "text":
+                parts.append(b.get("text", ""))
+            elif btype == "tool_use":
+                rendered = _render_tool_use(b)
+                if used + len(rendered) <= budget:
+                    parts.append(rendered)
+                    used += len(rendered)
+            elif btype == "tool_result":
+                text = _tool_result_text(b)
+                if b.get("is_error"):
+                    rendered = f"[ERROR] {text[:_ERROR_CAP]}"
+                    parts.append(rendered)  # errors always kept
+                    used += len(rendered)
+                elif head > 0 and used < budget:
+                    rendered = f"[OUT] {text[:head]}"
+                    parts.append(rendered)
+                    used += len(rendered)
+        parts = [p for p in parts if p]
+        lines.append(f"{role}: " + "\n".join(parts))
+
+    return "\n".join(lines)
+
+
 # ── main capture pipeline ─────────────────────────────────────────────────────
 
 
@@ -569,11 +664,10 @@ def run_capture(
         date_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
 
     # ── 1. scrub transcript ───────────────────────────────────────────────────
-    role_map = {"user": "[USER]", "assistant": "[ASSISTANT]"}
-    raw_text = "\n".join(
-        f"{role_map.get(m.get('role', ''), '[UNKNOWN]')}: {m.get('content', '')}"
-        for m in transcript
-    )
+    # render_transcript surfaces tool activity ([TOOL]/[OUT]/[ERROR]) for the model;
+    # scrub still runs on the full assembled text, so secrets in commands/output are
+    # redacted exactly as prose is.
+    raw_text = render_transcript(transcript)
     scrubbed_text, redactions = scrub_mod.scrub(raw_text)
 
     # ── 2. excluded command check ─────────────────────────────────────────────
@@ -744,11 +838,24 @@ def _load_transcript(transcript_path: str) -> list[dict]:
                 obj = json.loads(line)
                 if obj.get("type") == "user" or obj.get("role") == "user":
                     raw = obj.get("message", {}).get("content", obj.get("content", ""))
-                    messages.append({"role": "user", "content": _extract_text(raw)})
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": _extract_text(raw),
+                            # Raw blocks travel alongside the text-only content so
+                            # render_transcript can surface tool activity to the model
+                            # while the filters keep reading content only.
+                            "blocks": raw if isinstance(raw, list) else None,
+                        }
+                    )
                 elif obj.get("type") == "assistant" or obj.get("role") == "assistant":
                     raw = obj.get("message", {}).get("content", obj.get("content", ""))
                     messages.append(
-                        {"role": "assistant", "content": _extract_text(raw)}
+                        {
+                            "role": "assistant",
+                            "content": _extract_text(raw),
+                            "blocks": raw if isinstance(raw, list) else None,
+                        }
                     )
             except json.JSONDecodeError:
                 continue
