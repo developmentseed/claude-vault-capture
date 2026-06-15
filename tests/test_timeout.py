@@ -6,6 +6,7 @@ it and a timed-out call was mislabeled `error:APITimeoutError` instead of the
 documented `timeout` skip reason. _invoke_via_api_key now normalizes it.
 """
 
+import importlib
 import json
 
 import anthropic
@@ -40,6 +41,28 @@ def _above_threshold_transcript():
         {"role": "assistant", "content": "ok"},
         {"role": "user", "content": "c" * 600},
     ]
+
+
+def test_timeout_seconds_defaults_to_30(monkeypatch):
+    """With no override set, the call timeout is the documented 30s default."""
+    monkeypatch.delenv("CAPTURE_TIMEOUT_SECONDS", raising=False)
+    try:
+        importlib.reload(curate)
+        assert curate.TIMEOUT_SECONDS == 30
+    finally:
+        importlib.reload(curate)
+
+
+def test_timeout_seconds_env_override(monkeypatch):
+    """CAPTURE_TIMEOUT_SECONDS overrides the default at module load."""
+    monkeypatch.setenv("CAPTURE_TIMEOUT_SECONDS", "90")
+    try:
+        importlib.reload(curate)
+        assert curate.TIMEOUT_SECONDS == 90
+    finally:
+        # Restore the module to default-env state for the rest of the session.
+        monkeypatch.delenv("CAPTURE_TIMEOUT_SECONDS", raising=False)
+        importlib.reload(curate)
 
 
 def test_api_timeout_normalized_to_builtin(monkeypatch):

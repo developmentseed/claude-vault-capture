@@ -57,7 +57,11 @@ MOCK_RESPONSES_PATH = (
 
 MODEL_A = "claude-sonnet-4-6"
 MAX_TOKENS_A = 2000
-TIMEOUT_SECONDS = 30
+# Hard wall on a single model call. Overridable via CAPTURE_TIMEOUT_SECONDS for
+# environments with large sessions or slow links (e.g. subscription mode, where a
+# big transcript can take longer than the 30s default). All model work is
+# backgrounded off the SessionEnd close path, so a higher value never delays a session.
+TIMEOUT_SECONDS: int = int(os.environ.get("CAPTURE_TIMEOUT_SECONDS", "30"))
 # Path A nulls non-deterministically: the same transcript can return `null` on
 # one call and a real artifact on the next. Retry once on null to recover those
 # misses at zero precision cost (a genuinely empty session re-nulls). Retry

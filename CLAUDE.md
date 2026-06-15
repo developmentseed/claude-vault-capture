@@ -67,7 +67,7 @@ session-end-capture.sh  →  curate.py (backgrounded, nohup)
 | `duplicate` | session_id already present in session-index.tsv |
 | `model_returned_null` | Sonnet returned the literal string `null` on both the initial call and the one retry |
 | `malformed_json` | model response isn't valid JSON even after fence-stripping (not retried) |
-| `timeout` | API call exceeded 30 s |
+| `timeout` | a model call exceeded `CAPTURE_TIMEOUT_SECONDS` (default 30 s) |
 | `error:<ExcType>` | any other exception |
 
 ## Environment
@@ -78,6 +78,7 @@ session-end-capture.sh  →  curate.py (backgrounded, nohup)
 - `CAPTURE_USE_SUBSCRIPTION=1` — route the curation model call through the Claude Agent SDK (Claude Code runtime) so it bills to a Pro/Max subscription instead of a metered key. Auth via `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`; hook falls back to `~/.claude_vault_oauth_token`). Because `capture.env` is sourced with `set -a`, you can resolve the token from the **macOS Keychain** instead of a plaintext file — see the README's "Using your Claude Pro or Max subscription" section for the `security add-generic-password` + `find-generic-password` recipe. Requires `claude-agent-sdk` + the `claude` CLI. In this mode `cost_usd` is an *estimated* API-equivalent, not billed, and `max_tokens` is not enforced (runtime controls output). The model-call transport is the only difference — scrub/filter/parse/write are identical.
 - `CAPTURE_MOCK_SDK=1` — skip real API calls; use `eval/fixtures/mock-responses.json`.
 - `CAPTURE_MAX_EST_TOKENS` — override token ceiling (default 50 000).
+- `CAPTURE_TIMEOUT_SECONDS` — override the per-call model timeout in seconds (default 30). Raise it for large sessions or slow links; all model work is backgrounded off the close path, so a higher value never delays a session.
 - `CAPTURE_TOOL_CHARS_BUDGET` — max chars of rendered tool activity added to the curator input (default 30 000). Once spent, further `[TOOL]`/`[OUT]` lines are dropped; `[ERROR]` lines are always kept. Caps the enrichment so it can't trip the token guard. Measured impact: ~+$0.015/session input (output unchanged); see `eval/experiments/tool_enrichment_cost.py`.
 - `CAPTURE_SUCCESS_HEAD_CHARS` — chars of each successful tool result included as an `[OUT]` head (default 200; set `0` to drop successful output entirely and keep only commands + errors).
 
