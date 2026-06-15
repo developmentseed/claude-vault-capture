@@ -61,9 +61,10 @@ class TestLoadTranscript:
             ],
         )
         msgs = _load_transcript(path)
+        # Plain-string content carries no raw blocks (blocks is None).
         assert msgs == [
-            {"role": "user", "content": "hello"},
-            {"role": "assistant", "content": "world"},
+            {"role": "user", "content": "hello", "blocks": None},
+            {"role": "assistant", "content": "world", "blocks": None},
         ]
 
     def test_list_content_blocks(self, tmp_path):
@@ -96,8 +97,19 @@ class TestLoadTranscript:
             ],
         )
         msgs = _load_transcript(path)
-        assert msgs[0] == {"role": "user", "content": "run a command"}
-        assert msgs[1] == {"role": "assistant", "content": "sure"}
+        # content is text-only; the raw blocks ride along for render_transcript.
+        assert msgs[0]["role"] == "user"
+        assert msgs[0]["content"] == "run a command"
+        assert msgs[1]["content"] == "sure"
+        assert msgs[1]["blocks"] == [
+            {"type": "text", "text": "sure"},
+            {
+                "type": "tool_use",
+                "id": "t1",
+                "name": "Bash",
+                "input": {"command": "ls"},
+            },
+        ]
 
     def test_skips_blank_lines_and_invalid_json(self, tmp_path):
         p = tmp_path / "transcript.jsonl"
