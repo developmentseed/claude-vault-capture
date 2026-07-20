@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.0](https://github.com/developmentseed/claude-vault-capture/compare/v0.2.0...v0.3.0) (2026-07-20)
+
+
+### Features
+
+* **curate:** make the model-call timeout configurable via CAPTURE_TIMEOUT_SECONDS ([#16](https://github.com/developmentseed/claude-vault-capture/issues/16)) ([7694a43](https://github.com/developmentseed/claude-vault-capture/commit/7694a43b937dafe309ba5bf21128bfd803800145))
+* surface tool activity to the curator ([#15](https://github.com/developmentseed/claude-vault-capture/issues/15)) ([541a2e5](https://github.com/developmentseed/claude-vault-capture/commit/541a2e5b0fd7663c0e185ee9be9e0018eeabbfcb))
+
+
+### Bug Fixes
+
+* **capture:** close the W29 no-capture failure classes ([#26](https://github.com/developmentseed/claude-vault-capture/issues/26)) ([8d8a239](https://github.com/developmentseed/claude-vault-capture/commit/8d8a2393d8349f3046fa7b83143aae6c10f5ce1e))
+
 ## [0.2.0](https://github.com/lhoupert/claude-vault-capture/compare/v0.1.0...v0.2.0) (2026-06-05)
 
 
