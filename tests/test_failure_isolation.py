@@ -117,6 +117,23 @@ class TestTokenCaptureOnFailure:
         assert entry["tokens_out_a"] == 60
         assert entry["cost_usd_a"] == 0.0003
 
+    def test_generic_error_logs_exception_message(self, tmp_path, monkeypatch):
+        """error:<Type> skips must also log the exception *message* — a bare type
+        name (e.g. the SDK's literal `Exception`) is undiagnosable from log.md."""
+        import curate
+
+        recorded = []
+        monkeypatch.setattr(curate, "_log_error", lambda msg: recorded.append(msg))
+
+        def mock_a_sdk_error(*a, **kw):
+            raise Exception("Control request timeout: initialize")
+
+        entry, _ = _run_with_mock_a(
+            tmp_path, monkeypatch, mock_a=mock_a_sdk_error, sid="test-error-message"
+        )
+        assert entry["skip_reason_a"] == "error:Exception"
+        assert any("Control request timeout: initialize" in m for m in recorded)
+
     def test_malformed_json_without_usage_attr(self, tmp_path, monkeypatch):
         """Graceful fallback when exc.usage is absent."""
 

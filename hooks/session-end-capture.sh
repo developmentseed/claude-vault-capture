@@ -61,6 +61,21 @@ fi
 mkdir -p "$(dirname "$HOOKS_LOG")"
 printf 'SESSION_END_RECEIVED\t%s\t%s\n' "$SESSION_ID" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$HOOKS_LOG"
 
+# Deploy-drift guard: the June–July timeout outage was a checkout stuck behind
+# origin/main, so the running code silently wasn't the merged code. Log the
+# running SHA every session and flag when the last-fetched origin/main is not
+# an ancestor of HEAD. Local-only git ops — never fetch on the close path.
+DEPLOY_SHA="$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+DEPLOY_STATE="ok"
+if [[ "$DEPLOY_SHA" == "unknown" ]]; then
+    DEPLOY_STATE="unknown"
+elif git -C "$REPO" rev-parse --verify -q origin/main >/dev/null 2>&1 \
+    && ! git -C "$REPO" merge-base --is-ancestor origin/main HEAD 2>/dev/null; then
+    DEPLOY_STATE="STALE_DEPLOY(behind origin/main as last fetched)"
+fi
+printf 'CAPTURE_DEPLOY\t%s\t%s\t%s\n' "$DEPLOY_SHA" "$DEPLOY_STATE" \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$HOOKS_LOG"
+
 # Background curate.py — detached, stdout/stderr → hooks.log
 nohup "$VENV_PYTHON" "$CURATE" "$TRANSCRIPT_PATH" "$SESSION_ID" "$CWD" \
     >>"$HOOKS_LOG" 2>&1 &
